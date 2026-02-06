@@ -198,6 +198,8 @@ def test_list_with_recordings(monkeypatch, tmp_path):
     runner = CliRunner()
     result = runner.invoke(main, ["list"])
     assert result.exit_code == 0
+    assert "REF" in result.output
+    assert "HEAD" in result.output
     assert "2025-01-15-143022" in result.output
 
 
@@ -464,6 +466,7 @@ def test_search_matches(monkeypatch, tmp_path):
     result = runner.invoke(main, ["search", "budget"])
     assert result.exit_code == 0
     assert stems[-1] in result.output
+    assert "(HEAD)" in result.output
     assert "discussed the budget today" in result.output
     assert "1 match found." in result.output
 

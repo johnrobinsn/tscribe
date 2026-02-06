@@ -223,16 +223,21 @@ def list_recordings(limit, search, sort_by, no_header):
     data_dir = get_data_dir(cfg.storage.data_dir)
     mgr = SessionManager(get_recordings_dir(data_dir))
 
+    # Build stem→ref map from date-sorted order
+    all_by_date = mgr.list_sessions(limit=None, sort_by="date")
+    ref_map = {s.stem: (f"HEAD~{i}" if i else "HEAD") for i, s in enumerate(all_by_date)}
+
     sessions = mgr.list_sessions(limit=limit, sort_by=sort_by, search=search)
     if not sessions:
         click.echo("No recordings found.")
         return
 
     if not no_header:
-        click.echo(f"{'Date':<22} {'Duration':>9}  {'Transcribed':>12}  {'File'}")
-        click.echo("-" * 75)
+        click.echo(f"{'REF':<9} {'Date':<22} {'Duration':>9}  {'Transcribed':>12}  {'File'}")
+        click.echo("-" * 85)
 
     for s in sessions:
+        ref = ref_map.get(s.stem, "?")
         date_str = s.stem
         if s.duration_seconds is not None:
             m, sec = divmod(int(s.duration_seconds), 60)
@@ -241,7 +246,7 @@ def list_recordings(limit, search, sort_by, no_header):
         else:
             dur_str = "---"
         trans_str = "Yes" if s.transcribed else "No"
-        click.echo(f"{date_str:<22} {dur_str:>9}  {trans_str:>12}  {s.wav_path.name}")
+        click.echo(f"{ref:<9} {date_str:<22} {dur_str:>9}  {trans_str:>12}  {s.wav_path.name}")
 
 
 @main.command()
@@ -265,13 +270,18 @@ def search(query, limit, sort_by):
     data_dir = get_data_dir(cfg.storage.data_dir)
     mgr = SessionManager(get_recordings_dir(data_dir))
 
+    # Build stem→ref map from date-sorted order
+    all_by_date = mgr.list_sessions(limit=None, sort_by="date")
+    ref_map = {s.stem: (f"HEAD~{i}" if i else "HEAD") for i, s in enumerate(all_by_date)}
+
     results = mgr.search_transcripts(query, limit=limit, sort_by=sort_by)
     if not results:
         click.echo("No matches found.")
         return
 
     for session, lines in results:
-        click.echo(f"── {session.stem} ──")
+        ref = ref_map.get(session.stem, "?")
+        click.echo(f"── {session.stem} ({ref}) ──")
         for line in lines:
             click.echo(line)
         click.echo()

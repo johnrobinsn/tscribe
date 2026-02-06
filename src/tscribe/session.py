@@ -71,7 +71,7 @@ class SessionManager:
 
     def list_sessions(
         self,
-        limit: int = 20,
+        limit: Optional[int] = 20,
         sort_by: str = "date",
         search: Optional[str] = None,
     ) -> list[SessionInfo]:
@@ -89,7 +89,7 @@ class SessionManager:
             sessions.append(info)
 
         sessions.sort(key=lambda s: self._sort_key(s, sort_by), reverse=(sort_by == "date"))
-        return sessions[:limit]
+        return sessions[:limit] if limit else sessions
 
     def get_session(self, stem: str) -> Optional[SessionInfo]:
         """Load a single session by its stem name."""
