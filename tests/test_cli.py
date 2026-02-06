@@ -727,10 +727,11 @@ def test_devices_pipewire_loopback_only(monkeypatch):
 def test_create_recorder_pipewire_on_linux(monkeypatch):
     """On Linux with PipeWire, factory returns PipewireRecorder."""
     from tscribe.cli import _create_recorder
+    from tscribe.recorder import RecordingConfig
 
     monkeypatch.setattr("tscribe.cli.sys.platform", "linux")
     monkeypatch.setattr("tscribe.pipewire_devices.is_pipewire_available", lambda: True)
-    recorder = _create_recorder(None)
+    recorder = _create_recorder(RecordingConfig())
     from tscribe.recorder.pipewire_recorder import PipewireRecorder
     assert isinstance(recorder, PipewireRecorder)
 
@@ -738,6 +739,7 @@ def test_create_recorder_pipewire_on_linux(monkeypatch):
 def test_create_recorder_sounddevice_no_pipewire(monkeypatch):
     """When PipeWire is unavailable, factory returns SounddeviceRecorder."""
     from tscribe.cli import _create_recorder
+    from tscribe.recorder import RecordingConfig
     from tscribe.recorder.sounddevice_recorder import SounddeviceRecorder
 
     monkeypatch.setattr("tscribe.cli.sys.platform", "linux")
@@ -745,20 +747,86 @@ def test_create_recorder_sounddevice_no_pipewire(monkeypatch):
     # Mock sounddevice import since it may fail on this system
     mock_sd = MagicMock()
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
-    recorder = _create_recorder(None)
+    recorder = _create_recorder(RecordingConfig())
     assert isinstance(recorder, SounddeviceRecorder)
 
 
 def test_create_recorder_sounddevice_on_non_linux(monkeypatch):
-    """On macOS/Windows, factory always returns SounddeviceRecorder."""
+    """On macOS, factory returns SounddeviceRecorder for mic."""
     from tscribe.cli import _create_recorder
+    from tscribe.recorder import RecordingConfig
     from tscribe.recorder.sounddevice_recorder import SounddeviceRecorder
 
     monkeypatch.setattr("tscribe.cli.sys.platform", "darwin")
     mock_sd = MagicMock()
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
-    recorder = _create_recorder(None)
+    recorder = _create_recorder(RecordingConfig())
     assert isinstance(recorder, SounddeviceRecorder)
+
+
+def test_create_recorder_wasapi_on_windows_loopback(monkeypatch):
+    """On Windows with loopback, factory returns WasapiRecorder."""
+    from tscribe.cli import _create_recorder
+    from tscribe.recorder import RecordingConfig
+
+    monkeypatch.setattr("tscribe.cli.sys.platform", "win32")
+    mock_pyaudio = MagicMock()
+    monkeypatch.setitem(sys.modules, "pyaudiowpatch", mock_pyaudio)
+
+    recorder = _create_recorder(RecordingConfig(loopback=True))
+    from tscribe.recorder.wasapi_recorder import WasapiRecorder
+    assert isinstance(recorder, WasapiRecorder)
+
+
+def test_create_recorder_sounddevice_on_windows_mic(monkeypatch):
+    """On Windows with mic, factory returns SounddeviceRecorder."""
+    from tscribe.cli import _create_recorder
+    from tscribe.recorder import RecordingConfig
+    from tscribe.recorder.sounddevice_recorder import SounddeviceRecorder
+
+    monkeypatch.setattr("tscribe.cli.sys.platform", "win32")
+    mock_sd = MagicMock()
+    monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
+    recorder = _create_recorder(RecordingConfig(loopback=False))
+    assert isinstance(recorder, SounddeviceRecorder)
+
+
+def test_default_loopback_win32_with_pyaudiowpatch(monkeypatch):
+    """On Windows with PyAudioWPatch installed, defaults to loopback."""
+    from tscribe.cli import _default_loopback
+
+    monkeypatch.setattr("tscribe.cli.sys.platform", "win32")
+    mock_pyaudio = MagicMock()
+    monkeypatch.setitem(sys.modules, "pyaudiowpatch", mock_pyaudio)
+    assert _default_loopback() is True
+
+
+def test_default_loopback_win32_no_pyaudiowpatch(monkeypatch):
+    """On Windows without PyAudioWPatch, falls back to device check."""
+    from tscribe.cli import _default_loopback
+
+    monkeypatch.setattr("tscribe.cli.sys.platform", "win32")
+    # Ensure pyaudiowpatch is not importable
+    monkeypatch.delitem(sys.modules, "pyaudiowpatch", raising=False)
+    monkeypatch.setattr("builtins.__import__", _import_without_pyaudiowpatch(monkeypatch))
+    # Also mock list_devices to return no loopback devices
+    mock_list = MagicMock(return_value=[])
+    monkeypatch.setattr("tscribe.devices.list_devices", mock_list)
+    mock_sd = MagicMock()
+    monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
+    assert _default_loopback() is False
+
+
+def _import_without_pyaudiowpatch(monkeypatch):
+    """Create an import function that blocks pyaudiowpatch."""
+    original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+
+    def _import(name, *args, **kwargs):
+        if name == "pyaudiowpatch":
+            raise ImportError("No module named 'pyaudiowpatch'")
+        return original_import(name, *args, **kwargs)
+
+    return _import
 
 
 # ──── config ────

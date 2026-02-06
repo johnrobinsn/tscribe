@@ -45,7 +45,7 @@ V1 focuses on core functionality: **record, transcribe, play, manage, search**.
 | Platform | Microphone | System Audio (Loopback) | Notes |
 |----------|-----------|------------------------|-------|
 | Linux    | Yes       | Yes                    | PipeWire native via `pw-record` |
-| Windows  | Yes       | Yes                    | WASAPI loopback via sounddevice |
+| Windows  | Yes       | Yes                    | WASAPI loopback via PyAudioWPatch |
 | macOS    | Yes       | Yes (requires setup)   | Requires BlackHole or similar virtual audio device |
 
 macOS system audio capture requires the user to install a third-party virtual audio driver (e.g., BlackHole). tscribe detects available loopback sources and guides the user if none are found.
@@ -61,7 +61,8 @@ macOS system audio capture requires the user to install a third-party virtual au
 | Language | Python 3.10+ | Rapid development, rich audio ecosystem, cross-platform |
 | Package Manager | uv | Fast, modern, handles venvs and lockfiles |
 | Audio Capture (Linux) | PipeWire (`pw-record`) | Native loopback/monitor capture, no PortAudio needed |
-| Audio Capture (macOS/Windows) | sounddevice (PortAudio) | Well-maintained, clean API, numpy integration |
+| Audio Capture (Windows loopback) | PyAudioWPatch | Native WASAPI loopback support, Windows-only |
+| Audio Capture (macOS/Windows mic) | sounddevice (PortAudio) | Well-maintained, clean API, numpy integration |
 | Transcription | faster-whisper (CTranslate2) | Pre-built wheels on all platforms, fast CPU inference, auto model download |
 | URL Audio | yt-dlp | Supports YouTube and many other sites, lazy-loaded |
 | CLI Framework | click | Git-style subcommands, rich option handling |
@@ -94,7 +95,7 @@ macOS system audio capture requires the user to install a third-party virtual au
 
 ### Component Responsibilities
 
-- **Recorder**: Abstract `Recorder` interface with platform backends (`PipewireRecorder` for Linux, `SounddeviceRecorder` for macOS/Windows, `MockRecorder` for tests). Manages recording lifecycle.
+- **Recorder**: Abstract `Recorder` interface with platform backends (`PipewireRecorder` for Linux, `WasapiRecorder` for Windows loopback, `SounddeviceRecorder` for macOS/Windows mic, `MockRecorder` for tests). Manages recording lifecycle.
 - **Transcriber**: Uses faster-whisper Python API for transcription, writes transcript files. Supports `progress_callback` for UI updates.
 - **Session Manager**: Handles file naming, metadata, listing, searching, and importing external files.
 - **Device Manager**: Enumerates audio devices — PipeWire nodes on Linux (`pw-dump`), sounddevice elsewhere.
@@ -433,7 +434,7 @@ Ctrl+C (SIGINT) triggers graceful shutdown:
 Platform-specific implementation behind a common `Recorder` interface:
 
 - **Linux**: PipeWire native via `pw-record` with `-P '{ stream.capture.sink=true }'` for monitor capture. Level metering polls the growing WAV file.
-- **Windows**: WASAPI loopback mode via sounddevice.
+- **Windows**: WASAPI loopback via PyAudioWPatch (auto-installed on Windows). Captures from any output device natively, no virtual audio driver needed. Falls back to sounddevice for microphone recording.
 - **macOS**: Requires user to install BlackHole or similar. tscribe detects available virtual audio devices.
 
 ---
@@ -445,7 +446,8 @@ Platform-specific implementation behind a common `Recorder` interface:
 | Package | Purpose |
 |---------|---------|
 | click | CLI framework |
-| sounddevice | Audio capture on macOS/Windows (PortAudio bindings) |
+| sounddevice | Audio capture on macOS/Windows mic (PortAudio bindings) |
+| PyAudioWPatch | WASAPI loopback on Windows (auto-installed, Windows-only) |
 | numpy | Audio buffer handling (required by sounddevice) |
 | faster-whisper | Speech-to-text transcription (CTranslate2 backend) |
 | yt-dlp | URL audio download (lazy-loaded, only when transcribing URLs) |

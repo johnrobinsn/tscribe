@@ -240,7 +240,7 @@ By default, `tscribe record` captures system audio (what you hear through your s
 | Platform | How It Works |
 |----------|--------------|
 | Linux | PipeWire native via `pw-record` with monitor capture |
-| Windows | WASAPI loopback (built-in) |
+| Windows | WASAPI loopback via [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) (auto-installed) |
 | macOS | Requires [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install blackhole-2ch` |
 
 Run `tscribe devices --loopback` to see available loopback sources. Use `--device <id>` to record from a specific microphone or input device.
@@ -284,7 +284,8 @@ src/tscribe/
 ├── transcriber.py        # faster-whisper transcription
 └── recorder/
     ├── base.py                  # Abstract Recorder interface
-    ├── sounddevice_recorder.py  # sounddevice capture (macOS/Windows)
+    ├── sounddevice_recorder.py  # sounddevice capture (macOS/Windows mic)
+    ├── wasapi_recorder.py       # WASAPI loopback capture (Windows)
     ├── pipewire_recorder.py     # PipeWire capture (Linux)
     └── mock_recorder.py         # Test mock
 ```

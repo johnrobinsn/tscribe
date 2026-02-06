@@ -132,4 +132,4 @@ def test_platform_guidance_win32(monkeypatch):
     monkeypatch.setattr("tscribe.devices.sys.platform", "win32")
     guidance = get_platform_loopback_guidance()
     assert guidance is not None
-    assert "WASAPI" in guidance
+    assert "Stereo Mix" in guidance

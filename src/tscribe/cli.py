@@ -45,7 +45,18 @@ def _default_loopback() -> bool:
 
         return is_pipewire_available()
     if sys.platform == "win32":
-        return True
+        try:
+            import pyaudiowpatch  # noqa: F401
+
+            return True  # WASAPI loopback available for any output device
+        except ImportError:
+            pass
+        try:
+            from tscribe.devices import list_devices
+
+            return any(d.is_loopback for d in list_devices(loopback_only=True))
+        except Exception:
+            return False
     if sys.platform == "darwin":
         try:
             from tscribe.devices import list_devices
@@ -56,11 +67,12 @@ def _default_loopback() -> bool:
     return False
 
 
-def _create_recorder(config):
-    """Create the appropriate recorder based on platform and availability.
+def _create_recorder(rec_config):
+    """Create the appropriate recorder based on platform and config.
 
-    On Linux, prefers PipeWire when available (especially for loopback).
-    Falls back to sounddevice otherwise.
+    Linux + PipeWire → PipewireRecorder
+    Windows + loopback → WasapiRecorder (WASAPI loopback via PyAudioWPatch)
+    Everything else → SounddeviceRecorder
     """
     if sys.platform == "linux":
         from tscribe.pipewire_devices import is_pipewire_available
@@ -69,6 +81,14 @@ def _create_recorder(config):
             from tscribe.recorder.pipewire_recorder import PipewireRecorder
 
             return PipewireRecorder()
+
+    if sys.platform == "win32" and rec_config.loopback:
+        try:
+            from tscribe.recorder.wasapi_recorder import WasapiRecorder
+
+            return WasapiRecorder()
+        except ImportError:
+            pass
 
     from tscribe.recorder.sounddevice_recorder import SounddeviceRecorder
 
@@ -147,7 +167,7 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
         loopback=loopback,
     )
 
-    recorder = _create_recorder(cfg)
+    recorder = _create_recorder(rec_config)
     stop_event = threading.Event()
 
     interrupt_count = 0
@@ -718,6 +738,31 @@ def devices(loopback):
                     f"{n.serial:<8} {display_name:<40} {type_label:<10} {n.description}"
                 )
             return
+
+    # On Windows, use PyAudioWPatch for WASAPI loopback device listing
+    if sys.platform == "win32":
+        try:
+            import pyaudiowpatch as pyaudio
+
+            with pyaudio.PyAudio() as p:
+                loopback_devs = list(p.get_loopback_device_info_generator())
+
+            if loopback and loopback_devs:
+                click.echo(f"{'Idx':<5} {'Name':<50} {'Ch':>3} {'Rate':>7}")
+                click.echo("-" * 70)
+                for dev in loopback_devs:
+                    click.echo(
+                        f"{dev['index']:<5} {dev['name']:<50} "
+                        f"{dev['maxInputChannels']:>3} "
+                        f"{dev['defaultSampleRate']:>7.0f}"
+                    )
+                return
+            elif loopback:
+                click.echo("No WASAPI loopback devices found.")
+                return
+            # For non-loopback, fall through to show all devices via sounddevice
+        except ImportError:
+            pass
 
     # Fall back to sounddevice enumeration
     from tscribe.devices import get_platform_loopback_guidance, list_devices

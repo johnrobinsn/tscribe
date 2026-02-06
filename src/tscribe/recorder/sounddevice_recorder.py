@@ -24,14 +24,33 @@ class SounddeviceRecorder(Recorder):
         self._level: float = 0.0
         self._lock = threading.Lock()
 
+    def _resolve_device(self, config: RecordingConfig):
+        """Resolve the device to use, auto-selecting loopback if needed."""
+        if config.device is not None:
+            return config.device
+        if config.loopback:
+            from tscribe.devices import list_devices
+
+            loopback_devices = list_devices(loopback_only=True)
+            if loopback_devices:
+                return loopback_devices[0].index
+            raise RuntimeError(
+                "No loopback audio device found.\n"
+                "On Windows, enable 'Stereo Mix' in Sound settings > Recording devices.\n"
+                "On macOS, install BlackHole: brew install blackhole-2ch"
+            )
+        return None  # system default input
+
     def start(self, output_path: Path, config: RecordingConfig) -> None:
         import sounddevice as sd
 
         if self._recording:
             raise RuntimeError("Already recording")
 
+        device = self._resolve_device(config)
+
         # Use the device's native sample rate for compatibility
-        dev_info = sd.query_devices(config.device or sd.default.device[0], kind="input")
+        dev_info = sd.query_devices(device or sd.default.device[0], kind="input")
         sample_rate = int(dev_info["default_samplerate"])
 
         self._config = config
@@ -58,7 +77,7 @@ class SounddeviceRecorder(Recorder):
             samplerate=sample_rate,
             channels=config.channels,
             dtype=config.dtype,
-            device=config.device,
+            device=device,
             callback=callback,
         )
         self._stream.start()

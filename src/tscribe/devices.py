@@ -103,8 +103,8 @@ def get_platform_loopback_guidance() -> str | None:
     if sys.platform == "win32":
         return (
             "No loopback audio device found.\n"
-            "On Windows, WASAPI loopback should be available by default.\n"
-            "Try selecting a WASAPI host API device."
+            "On Windows, enable 'Stereo Mix' in Sound settings > Recording devices,\n"
+            "or install a virtual audio cable (e.g., VB-Cable)."
         )
     return None
 
