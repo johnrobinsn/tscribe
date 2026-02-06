@@ -15,35 +15,15 @@ def _create_recorder(config):
     return SounddeviceRecorder()
 
 
-def _auto_transcribe(cfg, data_dir, wav_path, stem, session_mgr):
-    """Run transcription after recording. Handles missing whisper.cpp gracefully."""
-    from pathlib import Path
-
-    from tscribe.paths import get_whisper_dir
+def _auto_transcribe(cfg, wav_path, stem, session_mgr):
+    """Run transcription after recording. Handles errors gracefully."""
     from tscribe.transcriber import Transcriber
-    from tscribe.whisper_manager import WhisperManager
 
-    wm = WhisperManager(get_whisper_dir(data_dir))
     model_name = cfg.transcription.model
-
-    if not wm.is_binary_available():
-        click.echo("whisper.cpp not found. Run 'tscribe setup' first to enable auto-transcription.")
-        return
-
-    if not wm.is_model_available(model_name):
-        click.echo(f"Model '{model_name}' not found. Downloading...")
-        try:
-            wm.download_model(model_name)
-        except Exception as e:
-            click.echo(f"Failed to download model: {e}")
-            return
-
-    binary = wm.find_binary()
-    model_path = wm.model_path(model_name)
-    transcriber = Transcriber(binary, model_path)
 
     click.echo(f"Transcribing with model '{model_name}'...")
     try:
+        transcriber = Transcriber(model_name=model_name)
         result = transcriber.transcribe(
             wav_path,
             language=cfg.transcription.language,
@@ -58,7 +38,7 @@ def _auto_transcribe(cfg, data_dir, wav_path, stem, session_mgr):
 @click.group()
 @click.version_option(version=__version__, prog_name="tscribe")
 def main():
-    """Record audio and transcribe with whisper.cpp."""
+    """Record audio and transcribe with whisper."""
 
 
 @main.command()
@@ -130,7 +110,7 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
         session_mgr.write_metadata(stem, meta)
 
         if not no_transcribe and cfg.recording.auto_transcribe:
-            _auto_transcribe(cfg, data_dir, wav_path, stem, session_mgr)
+            _auto_transcribe(cfg, wav_path, stem, session_mgr)
 
     finally:
         signal.signal(signal.SIGINT, original_handler)
@@ -148,13 +128,10 @@ def transcribe(file, model, language, output, fmt, gpu):
     from pathlib import Path
 
     from tscribe.config import TscribeConfig
-    from tscribe.paths import ensure_dirs, get_config_path, get_data_dir, get_whisper_dir
+    from tscribe.paths import get_config_path, get_data_dir
     from tscribe.transcriber import Transcriber
-    from tscribe.whisper_manager import WhisperManager
 
     cfg = TscribeConfig.load(get_config_path(get_data_dir()))
-    data_dir = get_data_dir(cfg.storage.data_dir)
-    ensure_dirs(data_dir)
 
     model_name = model or cfg.transcription.model
     lang = language or cfg.transcription.language
@@ -167,20 +144,8 @@ def transcribe(file, model, language, output, fmt, gpu):
     else:
         output_formats = cfg.transcription.output_formats
 
-    wm = WhisperManager(get_whisper_dir(data_dir))
-
-    if not wm.is_binary_available():
-        click.echo("whisper.cpp not found. Running setup...")
-        wm.download_binary()
-
-    if not wm.is_model_available(model_name):
-        click.echo(f"Model '{model_name}' not found. Downloading...")
-        wm.download_model(model_name)
-
-    binary = wm.find_binary()
-    model_path = wm.model_path(model_name)
-
-    transcriber = Transcriber(binary, model_path)
+    device = "cuda" if gpu else "cpu"
+    transcriber = Transcriber(model_name=model_name, device=device)
     audio_path = Path(file)
 
     click.echo(f"Transcribing {audio_path.name} with model '{model_name}'...")
@@ -188,7 +153,6 @@ def transcribe(file, model, language, output, fmt, gpu):
         audio_path,
         language=lang,
         output_formats=output_formats,
-        gpu=gpu,
     )
 
     click.echo(f"Transcription complete: {len(result.segments)} segments.")
@@ -293,21 +257,3 @@ def config(key, value, list_all):
         raise click.ClickException(str(e))
     cfg.save(config_path)
     click.echo(f"Set {key} = {cfg.get(key)!r}")
-
-
-@main.command()
-@click.option("--model", "-m", default="base", help="Model to download.")
-@click.option("--force", is_flag=True, help="Re-download even if already present.")
-def setup(model, force):
-    """Download whisper.cpp and models."""
-    from tscribe.config import TscribeConfig
-    from tscribe.paths import ensure_dirs, get_config_path, get_data_dir, get_whisper_dir
-    from tscribe.whisper_manager import WhisperManager
-
-    cfg = TscribeConfig.load(get_config_path(get_data_dir()))
-    data_dir = get_data_dir(cfg.storage.data_dir)
-    ensure_dirs(data_dir)
-
-    wm = WhisperManager(get_whisper_dir(data_dir))
-    wm.setup(model=model, force=force)
-    click.echo("Setup complete.")

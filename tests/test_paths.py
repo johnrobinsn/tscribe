@@ -7,7 +7,6 @@ from tscribe.paths import (
     get_config_path,
     get_data_dir,
     get_recordings_dir,
-    get_whisper_dir,
 )
 
 
@@ -37,14 +36,12 @@ def test_config_override_takes_precedence_over_env(tmp_path, monkeypatch):
 
 def test_subdirectory_helpers(tmp_path):
     assert get_recordings_dir(tmp_path) == tmp_path / "recordings"
-    assert get_whisper_dir(tmp_path) == tmp_path / "whisper"
     assert get_config_path(tmp_path) == tmp_path / "config.toml"
 
 
 def test_ensure_dirs(tmp_path):
     ensure_dirs(tmp_path)
     assert (tmp_path / "recordings").is_dir()
-    assert (tmp_path / "whisper" / "models").is_dir()
 
 
 def test_ensure_dirs_idempotent(tmp_path):

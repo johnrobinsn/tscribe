@@ -1,4 +1,4 @@
-"""Integration tests — require whisper.cpp to be installed.
+"""Integration tests — require faster-whisper model download.
 
 Run with: uv run pytest tests/test_integration.py -v -m slow
 """
@@ -10,26 +10,6 @@ import numpy as np
 import pytest
 
 from tscribe.transcriber import Transcriber
-from tscribe.whisper_manager import WhisperManager
-
-
-@pytest.fixture
-def whisper_dir(tmp_path):
-    """Create a whisper directory and check if whisper.cpp is available."""
-    wm = WhisperManager(tmp_path / "whisper")
-    binary = wm.find_binary()
-    if binary is None:
-        pytest.skip("whisper.cpp not installed — skipping integration tests")
-    return tmp_path / "whisper"
-
-
-@pytest.fixture
-def model_path(whisper_dir):
-    """Ensure the tiny model is available for fast testing."""
-    wm = WhisperManager(whisper_dir)
-    if not wm.is_model_available("tiny"):
-        pytest.skip("tiny model not available — run 'tscribe setup --model tiny'")
-    return wm.model_path("tiny")
 
 
 @pytest.fixture
@@ -46,15 +26,11 @@ def speech_wav(tmp_path):
 
 
 @pytest.mark.slow
-def test_transcribe_silence(whisper_dir, model_path, speech_wav):
+def test_transcribe_silence(speech_wav):
     """Smoke test: transcribing silence should succeed without crashing."""
-    wm = WhisperManager(whisper_dir)
-    binary = wm.find_binary()
-
-    t = Transcriber(binary, model_path)
+    t = Transcriber(model_name="tiny")
     result = t.transcribe(speech_wav, output_formats=["txt", "json"])
 
-    # Should succeed, may produce empty or minimal segments
     assert result.file == speech_wav.name
     assert result.language is not None
 
@@ -64,12 +40,9 @@ def test_transcribe_silence(whisper_dir, model_path, speech_wav):
 
 
 @pytest.mark.slow
-def test_transcribe_output_json_structure(whisper_dir, model_path, speech_wav):
+def test_transcribe_output_json_structure(speech_wav):
     """Verify the JSON output has the expected structure."""
-    wm = WhisperManager(whisper_dir)
-    binary = wm.find_binary()
-
-    t = Transcriber(binary, model_path)
+    t = Transcriber(model_name="tiny")
     result = t.transcribe(speech_wav, output_formats=["json"])
 
     json_path = speech_wav.with_suffix(".json")

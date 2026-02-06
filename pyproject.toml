@@ -1,7 +1,7 @@
 [project]
 name = "tscribe"
 version = "0.1.0"
-description = "Cross-platform CLI tool for recording audio and transcribing with whisper.cpp"
+description = "Cross-platform CLI tool for recording audio and transcribing with faster-whisper"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.0",
@@ -10,6 +10,7 @@ dependencies = [
     "platformdirs>=3.0",
     "tomli-w>=1.0",
     "tomli>=2.0; python_version < '3.11'",
+    "faster-whisper>=1.2.1",
 ]
 
 [project.scripts]
@@ -24,7 +25,7 @@ packages = ["src/tscribe"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: marks tests as slow (integration with whisper.cpp)"]
+markers = ["slow: marks tests as slow (requires model download)"]
 addopts = "--tb=short"
 
 [dependency-groups]

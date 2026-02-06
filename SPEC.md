@@ -20,7 +20,7 @@ V1 focuses on core functionality: **record, transcribe, list/search**.
 ### In Scope (V1)
 
 - Audio recording from microphone and system audio (loopback)
-- Transcription via whisper.cpp (CPU by default, GPU optional)
+- Transcription via faster-whisper (CPU by default, GPU optional)
 - Transcription of external audio files (not just tscribe recordings)
 - Listing and searching past recordings and transcripts
 - Auto-transcribe after recording (configurable)
@@ -55,7 +55,7 @@ macOS system audio capture requires the user to install a third-party virtual au
 | Language | Python 3.10+ | Rapid development, rich audio ecosystem, cross-platform |
 | Package Manager | uv | Fast, modern, handles venvs and lockfiles |
 | Audio Capture | sounddevice (PortAudio) | Well-maintained, clean API, cross-platform, numpy integration |
-| Transcription | whisper.cpp (subprocess) | Minimal dependencies, fast CPU inference, keeps ML runtime out of Python deps |
+| Transcription | faster-whisper (CTranslate2) | Pre-built wheels on all platforms, fast CPU inference, auto model download |
 | CLI Framework | argparse or click | Git-style subcommands |
 | Audio Format | WAV (recording) | Uncompressed during recording for zero overhead; whisper.cpp consumes WAV natively |
 
@@ -69,8 +69,8 @@ macOS system audio capture requires the user to install a third-party virtual au
                                                                        │
                                                                        ▼
                                                               ┌───────────────┐
-                                                              │  whisper.cpp   │
-                                                              │  (subprocess)  │
+                                                              │ faster-whisper │
+                                                              │  (Python API)  │
                                                               └───────┬───────┘
                                                                        │
                                                                        ▼
@@ -83,10 +83,9 @@ macOS system audio capture requires the user to install a third-party virtual au
 ### Component Responsibilities
 
 - **Recorder**: Manages audio device selection, recording lifecycle (start/stop/pause), writes WAV to disk.
-- **Transcriber**: Invokes whisper.cpp as a subprocess, parses output, writes transcript files.
+- **Transcriber**: Uses faster-whisper Python API for transcription, writes transcript files.
 - **Session Manager**: Handles file naming, metadata, listing, and searching across recordings.
 - **Device Manager**: Enumerates audio devices, detects loopback sources, provides platform-specific guidance.
-- **Whisper Manager**: Auto-downloads whisper.cpp binaries and models on first use, manages versions.
 
 ---
 
@@ -177,18 +176,6 @@ tscribe config [KEY] [VALUE]
 tscribe config --list
 ```
 
-#### `tscribe setup`
-
-Download/install whisper.cpp and default model.
-
-```
-tscribe setup [OPTIONS]
-
-Options:
-  --model MODEL           Model to download (default: base)
-  --force                 Re-download even if already present
-```
-
 ---
 
 ## Storage Layout
@@ -208,11 +195,6 @@ Flat directory structure under a configurable data directory:
 │   ├── 2025-01-15-143022.meta    # Recording metadata (device, duration, sample rate)
 │   ├── 2025-01-14-091500.wav
 │   └── ...
-└── whisper/
-    ├── whisper-cpp                # whisper.cpp binary
-    └── models/
-        ├── ggml-base.bin          # Downloaded model files
-        └── ...
 ```
 
 ### File Naming Convention
@@ -243,12 +225,11 @@ For external files transcribed via `tscribe transcribe`, `original_path` stores 
 
 ## Transcription Details
 
-### whisper.cpp Integration
+### faster-whisper Integration
 
-- **Auto-management**: On first use (or via `tscribe setup`), tscribe downloads a pre-built whisper.cpp binary for the current platform from the project's GitHub releases. Falls back to building from source if no pre-built binary is available.
-- **Model management**: Models are downloaded from Hugging Face (ggml format) on first use of each model size.
-- **Invocation**: whisper.cpp is called as a subprocess with appropriate arguments. tscribe parses its stdout/stderr for progress and results.
-- **PATH fallback**: If the user has whisper.cpp already installed and on PATH, tscribe uses that instead of downloading.
+- **Python API**: Uses faster-whisper (CTranslate2 backend) directly as a Python library — no subprocess or binary management needed.
+- **Auto-download**: Models are downloaded automatically from Hugging Face on first use of each model size.
+- **Cross-platform**: Pre-built wheels available for Linux, macOS, and Windows via pip/uv.
 
 ### Default Model
 
@@ -350,14 +331,14 @@ Platform-specific implementation behind a common interface:
 |---------|---------|
 | sounddevice | Audio capture (PortAudio bindings) |
 | numpy | Audio buffer handling (required by sounddevice) |
-| click or argparse | CLI framework |
+| click | CLI framework |
+| faster-whisper | Speech-to-text transcription (CTranslate2 backend) |
 
 ### System Dependencies
 
 | Dependency | Required | Notes |
 |-----------|----------|-------|
 | PortAudio | Yes | Installed via system package manager or bundled with sounddevice wheels |
-| whisper.cpp | Auto-managed | Downloaded or built by tscribe |
 | BlackHole (macOS) | For loopback only | User-installed, documented |
 
 ### Total Python Dependency Count Target
@@ -403,12 +384,10 @@ Aim for **fewer than 10** direct Python dependencies (excluding test/dev depende
 
 ### CI Considerations
 
-- whisper.cpp binary must be available in CI. Options:
-  - Download pre-built binary in CI setup step
-  - Cache the binary between CI runs
-  - Use the `tiny` model in CI for speed
+- faster-whisper is installed as a Python dependency — no binary setup needed in CI.
+- Use the `tiny` model in integration tests for speed; cache the model between CI runs.
 - Audio devices are not available in CI — all recording tests use the mock layer.
-- Integration tests that invoke whisper.cpp can be marked with a `@pytest.mark.slow` marker and optionally skipped in fast CI runs.
+- Integration tests that download models can be marked with a `@pytest.mark.slow` marker and optionally skipped in fast CI runs.
 
 ### Coverage
 
@@ -439,8 +418,7 @@ uv run pytest tests/test_recorder.py
 
 - **No audio device found**: Clear error message listing available devices, suggest `tscribe devices`
 - **No loopback source (macOS)**: Guide user to install BlackHole with a link
-- **whisper.cpp not found**: Prompt user to run `tscribe setup` or auto-trigger setup
-- **Model not downloaded**: Auto-download the requested model with progress indication
+- **Model not downloaded**: Auto-download the requested model on first use
 - **Recording interrupted unexpectedly**: Attempt to salvage the WAV file (update header with bytes written so far)
 - **Transcription fails**: Report the error, keep the audio file, allow retry
 

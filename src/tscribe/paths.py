@@ -27,10 +27,6 @@ def get_recordings_dir(data_dir: Path) -> Path:
     return data_dir / "recordings"
 
 
-def get_whisper_dir(data_dir: Path) -> Path:
-    return data_dir / "whisper"
-
-
 def get_config_path(data_dir: Path) -> Path:
     return data_dir / "config.toml"
 
@@ -38,4 +34,3 @@ def get_config_path(data_dir: Path) -> Path:
 def ensure_dirs(data_dir: Path) -> None:
     """Create all required subdirectories if they don't exist."""
     get_recordings_dir(data_dir).mkdir(parents=True, exist_ok=True)
-    (get_whisper_dir(data_dir) / "models").mkdir(parents=True, exist_ok=True)

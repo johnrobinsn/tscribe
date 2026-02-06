@@ -1,13 +1,10 @@
-"""Transcription via whisper.cpp subprocess."""
+"""Transcription via faster-whisper."""
 
 from __future__ import annotations
 
 import json
-import re
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -70,116 +67,67 @@ class TranscriptResult:
 
 
 class Transcriber:
-    def __init__(self, whisper_binary: Path, model_path: Path):
-        self.whisper_binary = whisper_binary
-        self.model_path = model_path
+    """Transcribe audio files using faster-whisper (CTranslate2 backend)."""
+
+    def __init__(
+        self,
+        model_name: str = "base",
+        device: str = "cpu",
+        compute_type: str | None = None,
+    ):
+        self._model_name = model_name
+        self._device = device
+        self._compute_type = compute_type or ("float16" if device == "cuda" else "int8")
+        self._model = None
+
+    def _get_model(self):
+        """Lazy-load the WhisperModel (downloads on first use)."""
+        if self._model is None:
+            from faster_whisper import WhisperModel
+
+            self._model = WhisperModel(
+                self._model_name,
+                device=self._device,
+                compute_type=self._compute_type,
+            )
+        return self._model
 
     def transcribe(
         self,
         audio_path: Path,
         language: str = "auto",
         output_formats: list[str] | None = None,
-        gpu: bool = False,
     ) -> TranscriptResult:
-        """Run whisper.cpp on the audio file and return parsed results."""
+        """Transcribe an audio file and write output files."""
         if output_formats is None:
             output_formats = ["txt", "json"]
 
-        cmd = self._build_command(audio_path, language, gpu)
+        model = self._get_model()
+        lang = None if language == "auto" else language
+        segments_iter, info = model.transcribe(str(audio_path), language=lang)
 
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600,
-        )
-
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"whisper.cpp failed (exit code {proc.returncode}):\n{proc.stderr}"
+        segments = []
+        for seg in segments_iter:
+            segments.append(
+                TranscriptSegment(
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text,
+                    confidence=seg.avg_log_prob,
+                )
             )
 
-        result = self._parse_output(proc.stdout, audio_path)
+        result = TranscriptResult(
+            file=audio_path.name,
+            model=self._model_name,
+            language=info.language,
+            segments=segments,
+        )
 
-        # Write output files alongside the audio
         base_path = audio_path.with_suffix("")
         self._write_outputs(result, base_path, output_formats)
 
         return result
-
-    def _build_command(self, audio_path: Path, language: str, gpu: bool) -> list[str]:
-        """Construct the whisper.cpp CLI arguments."""
-        cmd = [str(self.whisper_binary)]
-        cmd.extend(["-m", str(self.model_path)])
-        cmd.extend(["-f", str(audio_path)])
-        cmd.extend(["--output-json"])
-        cmd.extend(["--print-progress", "false"])
-        if language != "auto":
-            cmd.extend(["-l", language])
-        return cmd
-
-    def _parse_output(self, stdout: str, audio_path: Path) -> TranscriptResult:
-        """Parse whisper.cpp output into structured segments.
-
-        whisper.cpp with --output-json writes a .json file next to the input.
-        It also outputs timestamped text to stdout.
-        """
-        # Try to read the JSON file that whisper.cpp produces
-        json_output_path = audio_path.with_suffix(".wav.json")
-        if json_output_path.exists():
-            return self._parse_json_file(json_output_path, audio_path)
-
-        # Fallback: parse stdout timestamps like [00:00:00.000 --> 00:00:04.520]  text
-        return self._parse_stdout(stdout, audio_path)
-
-    def _parse_json_file(self, json_path: Path, audio_path: Path) -> TranscriptResult:
-        """Parse whisper.cpp's JSON output file."""
-        with open(json_path) as f:
-            data = json.load(f)
-
-        segments = []
-        for item in data.get("transcription", []):
-            timestamps = item.get("timestamps", {})
-            start = _parse_timestamp(timestamps.get("from", "00:00:00.000"))
-            end = _parse_timestamp(timestamps.get("to", "00:00:00.000"))
-            text = item.get("text", "")
-
-            segments.append(TranscriptSegment(
-                start=start,
-                end=end,
-                text=text,
-            ))
-
-        # Clean up the whisper-generated json file since we write our own
-        json_path.unlink(missing_ok=True)
-
-        return TranscriptResult(
-            file=audio_path.name,
-            model=self.model_path.stem.replace("ggml-", ""),
-            language=data.get("result", {}).get("language", "unknown"),
-            segments=segments,
-        )
-
-    def _parse_stdout(self, stdout: str, audio_path: Path) -> TranscriptResult:
-        """Parse whisper.cpp stdout as timestamped text."""
-        segments = []
-        pattern = re.compile(
-            r"\[(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\]\s*(.*)"
-        )
-        for line in stdout.splitlines():
-            m = pattern.match(line.strip())
-            if m:
-                start = _parse_timestamp(m.group(1))
-                end = _parse_timestamp(m.group(2))
-                text = m.group(3)
-                segments.append(TranscriptSegment(start=start, end=end, text=text))
-
-        return TranscriptResult(
-            file=audio_path.name,
-            model=self.model_path.stem.replace("ggml-", ""),
-            language="unknown",
-            segments=segments,
-        )
 
     def _write_outputs(
         self, result: TranscriptResult, base_path: Path, formats: list[str]
@@ -196,19 +144,6 @@ class Transcriber:
                 base_path.with_suffix(".srt").write_text(result.to_srt())
             elif fmt == "vtt":
                 base_path.with_suffix(".vtt").write_text(result.to_vtt())
-
-
-def _parse_timestamp(ts: str) -> float:
-    """Parse a timestamp like '00:01:23.456' or '00:01:23,456' to seconds."""
-    ts = ts.replace(",", ".")
-    parts = ts.split(":")
-    if len(parts) == 3:
-        h, m, s = parts
-        return int(h) * 3600 + int(m) * 60 + float(s)
-    if len(parts) == 2:
-        m, s = parts
-        return int(m) * 60 + float(s)
-    return float(ts)
 
 
 def _format_srt_time(seconds: float) -> str:

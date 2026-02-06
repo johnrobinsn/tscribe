@@ -1,11 +1,11 @@
 # tscribe
 
-Cross-platform CLI tool for recording audio and transcribing it to text using [whisper.cpp](https://github.com/ggerganov/whisper.cpp). Runs on modest hardware — no GPU required.
+Cross-platform CLI tool for recording audio and transcribing it to text using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Runs on modest hardware — no GPU required.
 
 ## Features
 
 - **Record** from microphone or system audio (loopback)
-- **Transcribe** recordings or any WAV file via whisper.cpp
+- **Transcribe** recordings or any WAV file via faster-whisper
 - **Auto-transcribe** after recording stops (configurable)
 - **Search** past transcripts by keyword
 - **Cross-platform**: Linux, macOS, Windows
@@ -24,12 +24,11 @@ git clone <repo-url> && cd tscribe
 uv sync
 ```
 
+Models are downloaded automatically on first transcription (~74MB for the default `base` model).
+
 ## Quick Start
 
 ```bash
-# Download whisper.cpp and the base model (~74MB)
-tscribe setup
-
 # Record audio (Ctrl+C to stop, auto-transcribes by default)
 tscribe record
 
@@ -50,7 +49,6 @@ tscribe list --search "action items"
 | `tscribe list` | List past recordings |
 | `tscribe devices` | List audio input devices |
 | `tscribe config` | View or set configuration |
-| `tscribe setup` | Download whisper.cpp binary and models |
 
 ### Record
 
@@ -69,6 +67,7 @@ tscribe transcribe audio.wav                    # Default (base model, txt+json)
 tscribe transcribe audio.wav --model small      # Higher quality model
 tscribe transcribe audio.wav --format all       # Output txt, json, srt, vtt
 tscribe transcribe audio.wav --language en      # Force language
+tscribe transcribe audio.wav --gpu              # Use GPU acceleration
 ```
 
 ### List & Search
@@ -100,6 +99,8 @@ tscribe config transcription.model small        # Change default model
 | large | ~1.5GB | Slower than realtime | Best |
 
 Default: `base`. Change with `tscribe config transcription.model <size>`.
+
+Models are downloaded automatically from Hugging Face on first use.
 
 ## System Audio (Loopback)
 
@@ -137,7 +138,7 @@ uv run pytest
 # Run tests with coverage
 uv run pytest --cov=tscribe --cov-report=term-missing
 
-# Skip slow integration tests (require whisper.cpp)
+# Skip slow integration tests (require model download)
 uv run pytest -m "not slow"
 ```
 
@@ -150,8 +151,7 @@ src/tscribe/
 ├── paths.py         # Cross-platform path resolution
 ├── devices.py       # Audio device enumeration
 ├── session.py       # Recording session & file management
-├── transcriber.py   # whisper.cpp subprocess integration
-├── whisper_manager.py  # Binary & model download management
+├── transcriber.py   # faster-whisper transcription
 └── recorder/
     ├── base.py      # Abstract Recorder interface
     ├── sounddevice_recorder.py  # Real audio capture

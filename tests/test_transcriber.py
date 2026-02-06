@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,22 +12,7 @@ from tscribe.transcriber import (
     Transcriber,
     _format_srt_time,
     _format_vtt_time,
-    _parse_timestamp,
 )
-
-
-class TestParseTimestamp:
-    def test_hhmmss(self):
-        assert _parse_timestamp("00:01:23.456") == pytest.approx(83.456)
-
-    def test_hhmmss_comma(self):
-        assert _parse_timestamp("00:01:23,456") == pytest.approx(83.456)
-
-    def test_mmss(self):
-        assert _parse_timestamp("01:23.456") == pytest.approx(83.456)
-
-    def test_zero(self):
-        assert _parse_timestamp("00:00:00.000") == 0.0
 
 
 class TestFormatTimestamps:
@@ -81,67 +66,94 @@ class TestTranscriptResult:
         assert "00:00:00.000 --> 00:00:02.500" in vtt
 
 
-class TestTranscriberBuildCommand:
-    def test_basic_command(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
-        cmd = t._build_command(tmp_path / "audio.wav", language="auto", gpu=False)
-        assert str(tmp_path / "whisper") in cmd
-        assert "-m" in cmd
-        assert "-f" in cmd
-        assert "--output-json" in cmd
+class TestTranscriberInit:
+    def test_default_cpu(self):
+        t = Transcriber(model_name="base")
+        assert t._model_name == "base"
+        assert t._device == "cpu"
+        assert t._compute_type == "int8"
 
-    def test_language_flag(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
-        cmd = t._build_command(tmp_path / "audio.wav", language="en", gpu=False)
-        assert "-l" in cmd
-        assert "en" in cmd
+    def test_gpu_defaults_to_float16(self):
+        t = Transcriber(model_name="base", device="cuda")
+        assert t._compute_type == "float16"
 
-    def test_auto_language_no_flag(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
-        cmd = t._build_command(tmp_path / "audio.wav", language="auto", gpu=False)
-        assert "-l" not in cmd
+    def test_custom_compute_type(self):
+        t = Transcriber(model_name="small", compute_type="float32")
+        assert t._compute_type == "float32"
 
 
-class TestTranscriberParseStdout:
-    def test_parse_timestamped_lines(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
-        stdout = (
-            "[00:00:00.000 --> 00:00:02.500]  Hello world.\n"
-            "[00:00:02.500 --> 00:00:05.000]  This is a test.\n"
-        )
-        result = t._parse_stdout(stdout, tmp_path / "audio.wav")
-        assert len(result.segments) == 2
-        assert result.segments[0].text == "Hello world."
-        assert result.segments[0].start == 0.0
-        assert result.segments[0].end == 2.5
+def _mock_whisper_model():
+    """Create a mock WhisperModel with a transcribe method."""
+    mock_seg = MagicMock()
+    mock_seg.start = 0.0
+    mock_seg.end = 2.5
+    mock_seg.text = " Hello world."
+    mock_seg.avg_log_prob = -0.1
 
-    def test_parse_empty_output(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
-        result = t._parse_stdout("", tmp_path / "audio.wav")
-        assert result.segments == []
+    mock_info = MagicMock()
+    mock_info.language = "en"
+
+    mock_model = MagicMock()
+    mock_model.transcribe.return_value = ([mock_seg], mock_info)
+    return mock_model
+
+
+class TestTranscriberTranscribe:
+    def test_transcribe_success(self, tmp_path):
+        mock_model = _mock_whisper_model()
+
+        t = Transcriber(model_name="base")
+        t._model = mock_model  # inject mock directly
+
+        audio_path = tmp_path / "audio.wav"
+        audio_path.write_bytes(b"fake wav")
+
+        result = t.transcribe(audio_path, output_formats=["txt"])
+
+        assert len(result.segments) == 1
+        assert result.segments[0].text == " Hello world."
+        assert result.model == "base"
+        assert result.language == "en"
+        assert (tmp_path / "audio.txt").exists()
+        mock_model.transcribe.assert_called_once()
+
+    def test_transcribe_with_language(self, tmp_path):
+        mock_model = _mock_whisper_model()
+
+        t = Transcriber(model_name="base")
+        t._model = mock_model
+
+        audio_path = tmp_path / "audio.wav"
+        audio_path.write_bytes(b"fake wav")
+
+        t.transcribe(audio_path, language="en")
+        mock_model.transcribe.assert_called_once_with(str(audio_path), language="en")
+
+    def test_transcribe_auto_language(self, tmp_path):
+        mock_model = _mock_whisper_model()
+
+        t = Transcriber(model_name="base")
+        t._model = mock_model
+
+        audio_path = tmp_path / "audio.wav"
+        audio_path.write_bytes(b"fake wav")
+
+        t.transcribe(audio_path, language="auto")
+        mock_model.transcribe.assert_called_once_with(str(audio_path), language=None)
+
+    def test_lazy_model_loading(self):
+        with patch("faster_whisper.WhisperModel") as mock_cls:
+            mock_cls.return_value = _mock_whisper_model()
+            t = Transcriber(model_name="tiny")
+            assert t._model is None
+            model = t._get_model()
+            assert model is not None
+            mock_cls.assert_called_once_with("tiny", device="cpu", compute_type="int8")
 
 
 class TestTranscriberWriteOutputs:
     def test_write_txt_and_json(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
+        t = Transcriber(model_name="base")
         result = TranscriptResult(
             file="test.wav",
             model="base",
@@ -161,10 +173,7 @@ class TestTranscriberWriteOutputs:
         assert data["segments"][0]["text"] == "Hello"
 
     def test_write_srt_and_vtt(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
+        t = Transcriber(model_name="base")
         result = TranscriptResult(
             file="test.wav",
             model="base",
@@ -176,45 +185,3 @@ class TestTranscriberWriteOutputs:
 
         assert (tmp_path / "test.srt").exists()
         assert (tmp_path / "test.vtt").exists()
-
-
-class TestTranscriberTranscribe:
-    def test_transcribe_success(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
-        audio_path = tmp_path / "audio.wav"
-        audio_path.write_bytes(b"fake wav")
-
-        mock_stdout = "[00:00:00.000 --> 00:00:02.500]  Hello world.\n"
-        mock_proc = type("Proc", (), {
-            "returncode": 0,
-            "stdout": mock_stdout,
-            "stderr": "",
-        })()
-
-        with patch("tscribe.transcriber.subprocess.run", return_value=mock_proc):
-            result = t.transcribe(audio_path, output_formats=["txt"])
-
-        assert len(result.segments) == 1
-        assert result.segments[0].text == "Hello world."
-        assert (tmp_path / "audio.txt").exists()
-
-    def test_transcribe_failure(self, tmp_path):
-        t = Transcriber(
-            whisper_binary=tmp_path / "whisper",
-            model_path=tmp_path / "ggml-base.bin",
-        )
-        audio_path = tmp_path / "audio.wav"
-        audio_path.write_bytes(b"fake wav")
-
-        mock_proc = type("Proc", (), {
-            "returncode": 1,
-            "stdout": "",
-            "stderr": "error: invalid file",
-        })()
-
-        with patch("tscribe.transcriber.subprocess.run", return_value=mock_proc):
-            with pytest.raises(RuntimeError, match="whisper.cpp failed"):
-                t.transcribe(audio_path)
