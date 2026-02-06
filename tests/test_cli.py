@@ -123,10 +123,14 @@ def test_transcribe_help():
     assert "SOURCE" in result.output
 
 
-def test_transcribe_missing_source():
+def test_transcribe_default_head_no_recordings(monkeypatch, tmp_path):
+    """With no source arg, defaults to HEAD; errors if no recordings exist."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    (tmp_path / "recordings").mkdir(parents=True)
     runner = CliRunner()
     result = runner.invoke(main, ["transcribe"])
     assert result.exit_code != 0
+    assert "not found" in result.output
 
 
 def test_transcribe_file_not_found():
@@ -230,6 +234,41 @@ def test_transcribe_url_with_mock(monkeypatch, tmp_path):
     assert len(list(rec_dir.glob("*.wav"))) == 1
     assert len(list(rec_dir.glob("*.meta"))) == 1
     assert len(list(rec_dir.glob("*.txt"))) == 1
+
+
+def test_transcribe_ref(monkeypatch, tmp_path):
+    """Transcribe a previous recording by REF (HEAD)."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir(parents=True)
+    _make_wav(rec_dir / "2025-06-01-120000.wav")
+
+    mock_model = _mock_whisper_for_cli()
+    with patch("faster_whisper.WhisperModel", return_value=mock_model):
+        runner = CliRunner()
+        result = runner.invoke(main, ["transcribe", "HEAD"])
+
+    assert result.exit_code == 0, result.output
+    assert "Transcription complete" in result.output
+    assert (rec_dir / "2025-06-01-120000.txt").exists()
+
+
+def test_transcribe_stem(monkeypatch, tmp_path):
+    """Transcribe a previous recording by session stem."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir(parents=True)
+    _make_wav(rec_dir / "2025-06-01-120000.wav")
+
+    mock_model = _mock_whisper_for_cli()
+    with patch("faster_whisper.WhisperModel", return_value=mock_model):
+        runner = CliRunner()
+        result = runner.invoke(main, ["transcribe", "2025-06-01-120000"])
+
+    assert result.exit_code == 0, result.output
+    assert "Transcription complete" in result.output
 
 
 # ──── list ────

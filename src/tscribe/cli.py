@@ -234,17 +234,20 @@ def _download_audio(url, output_dir):
 
 
 @main.command()
-@click.argument("source")
+@click.argument("source", default="HEAD")
 @click.option("--model", "-m", default=None, help="Whisper model size.")
 @click.option("--language", default=None, help="Language code (default: auto-detect).")
 @click.option("--output", "-o", type=click.Path(), default=None, help="Output file path.")
 @click.option("--format", "fmt", default=None, help="Output format: txt,json,srt,vtt,all")
 @click.option("--gpu", is_flag=True, help="Use GPU acceleration.")
 def transcribe(source, model, language, output, fmt, gpu):
-    """Transcribe an audio file or URL.
+    """Transcribe an audio file, URL, or previous recording.
 
-    SOURCE can be a local file path or a URL (YouTube, etc.).
-    URL transcription requires yt-dlp: pip install yt-dlp
+    \b
+    SOURCE can be:
+      - A local file path
+      - A URL (YouTube, etc.) — requires yt-dlp
+      - A recording ref: HEAD, HEAD~N, or a session stem
     """
     import tempfile
     import wave
@@ -269,9 +272,16 @@ def transcribe(source, model, language, output, fmt, gpu):
     else:
         output_formats = cfg.transcription.output_formats
 
+    is_ref = source == "HEAD" or source.startswith("HEAD~")
     is_url = "://" in source
 
-    if is_url:
+    if is_ref:
+        ensure_dirs(data_dir)
+        mgr = SessionManager(get_recordings_dir(data_dir))
+        session = _resolve_session(source, mgr)
+        audio_path = session.wav_path
+        stem = session.stem
+    elif is_url:
         ensure_dirs(data_dir)
         tmp_dir = tempfile.mkdtemp(prefix="tscribe_")
         downloaded = _download_audio(source, tmp_dir)
@@ -308,11 +318,21 @@ def transcribe(source, model, language, output, fmt, gpu):
         }
         mgr.write_metadata(stem, meta)
     else:
+        # Try as file path first, fall back to session stem
         audio_path = Path(source)
         if not audio_path.exists():
-            raise click.ClickException(f"File not found: {source}")
-        stem = None
-        mgr = None
+            # Maybe it's a session stem (e.g. 2025-01-15-143022)
+            ensure_dirs(data_dir)
+            mgr = SessionManager(get_recordings_dir(data_dir))
+            session = mgr.get_session(source)
+            if session:
+                audio_path = session.wav_path
+                stem = session.stem
+            else:
+                raise click.ClickException(f"File not found: {source}")
+        else:
+            stem = None
+            mgr = None
 
     device = "cuda" if gpu else "cpu"
     transcriber = Transcriber(model_name=model_name, device=device)
