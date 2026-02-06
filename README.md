@@ -5,7 +5,7 @@ Cross-platform CLI tool for recording audio and transcribing it to text using [f
 ## Features
 
 - **Record** system audio (loopback) or microphone with live level meter
-- **Transcribe** recordings or any WAV file via faster-whisper
+- **Transcribe** recordings, WAV files, or URLs (YouTube, etc.) via faster-whisper
 - **Auto-transcribe** after recording stops (configurable)
 - **Play** recordings with progress bar
 - **Open** transcripts in your default editor/viewer
@@ -40,6 +40,9 @@ tscribe record
 # Record from microphone instead
 tscribe record --mic
 
+# Transcribe a YouTube video
+tscribe transcribe "https://youtu.be/dQw4w9W"
+
 # Play back the last recording
 tscribe play
 
@@ -58,7 +61,7 @@ tscribe dump
 | `tscribe play [REF]` | Play a recording |
 | `tscribe open [REF]` | Open transcript in default program |
 | `tscribe dump [REF]` | Print transcript to stdout |
-| `tscribe transcribe <file>` | Transcribe a WAV file |
+| `tscribe transcribe <source>` | Transcribe a file or URL |
 | `tscribe list` | List past recordings |
 | `tscribe search <query>` | Search transcript text |
 | `tscribe devices` | List audio input devices |
@@ -105,12 +108,15 @@ tscribe dump | grep "action items"    # Pipe to other tools
 ### Transcribe
 
 ```bash
-tscribe transcribe audio.wav                    # Default (base model, txt+json)
+tscribe transcribe audio.wav                    # Local file (base model, txt+json)
+tscribe transcribe "https://youtu.be/dQw4w9W"  # YouTube or other URL
 tscribe transcribe audio.wav --model small      # Higher quality model
 tscribe transcribe audio.wav --format all       # Output txt, json, srt, vtt
 tscribe transcribe audio.wav --language en      # Force language
 tscribe transcribe audio.wav --gpu              # Use GPU acceleration
 ```
+
+URL transcription uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) (installed with tscribe) to download audio, imports it into the recordings directory, and transcribes it. The result appears in `tscribe list` like any other recording.
 
 ### List
 
@@ -121,14 +127,17 @@ tscribe list --sort duration          # Sort by duration
 tscribe list -n 50                    # Show 50 entries
 ```
 
-Output includes REF, date with day-of-week, duration, and transcription status:
+Output includes REF, date with day-of-week, duration, transcription status, and source:
 
 ```
-REF       Date                       Duration  Transcribed  File
-----------------------------------------------------------------------------------------
-HEAD      2025-01-15-143022 We        00:05:30          Yes  2025-01-15-143022.wav
-HEAD~1    2025-01-14-091500 Tu        00:03:15          Yes  2025-01-14-091500.wav
+REF     Date                      Dur Tx  Source
+------------------------------------------------------
+HEAD    2025-01-15-143022 We  00:05:30  Y  loopback
+HEAD~1  2025-01-14-091500 Tu  00:03:15  Y  https://youtu.be/dQw4w9W
+HEAD~2  2025-01-13-100000 Mo  00:10:00  N  microphone
 ```
+
+URLs are clickable hyperlinks in supported terminals.
 
 ### Search
 
