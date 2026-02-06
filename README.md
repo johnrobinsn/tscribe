@@ -203,11 +203,7 @@ Run `tscribe devices --loopback` to see available loopback sources. Use `--devic
 
 ## Storage
 
-Recordings are stored in your platform's data directory:
-
-- Linux: `~/.local/share/tscribe/recordings/`
-- macOS: `~/Library/Application Support/tscribe/recordings/`
-- Windows: `%LOCALAPPDATA%/tscribe/recordings/`
+Recordings are stored in `~/.tscribe/recordings/` on all platforms.
 
 Each recording produces:
 - `.wav` — audio file

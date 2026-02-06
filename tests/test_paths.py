@@ -11,8 +11,10 @@ from tscribe.paths import (
 
 
 def test_data_dir_default():
+    from pathlib import Path
+
     data_dir = get_data_dir()
-    assert "tscribe" in str(data_dir)
+    assert data_dir == Path.home() / ".tscribe"
 
 
 def test_data_dir_config_override(tmp_path):

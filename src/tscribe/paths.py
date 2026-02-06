@@ -3,15 +3,11 @@
 import os
 from pathlib import Path
 
-from platformdirs import user_data_dir
-
-from tscribe.constants import APP_NAME
-
 
 def get_data_dir(config_override: str = "") -> Path:
     """Resolve the tscribe data directory.
 
-    Priority: config_override > TSCRIBE_DATA_DIR env var > platform default.
+    Priority: config_override > TSCRIBE_DATA_DIR env var > ~/.tscribe.
     """
     if config_override:
         return Path(config_override)
@@ -20,7 +16,7 @@ def get_data_dir(config_override: str = "") -> Path:
     if env_dir:
         return Path(env_dir)
 
-    return Path(user_data_dir(APP_NAME))
+    return Path.home() / ".tscribe"
 
 
 def get_recordings_dir(data_dir: Path) -> Path:
