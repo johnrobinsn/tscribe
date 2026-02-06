@@ -4,23 +4,28 @@ Cross-platform CLI tool for recording audio and transcribing it to text using [f
 
 ## Features
 
-- **Record** from microphone or system audio (loopback)
+- **Record** system audio (loopback) or microphone with live level meter
 - **Transcribe** recordings or any WAV file via faster-whisper
 - **Auto-transcribe** after recording stops (configurable)
+- **Play** recordings with progress bar
+- **Open** transcripts in your default editor/viewer
+- **Dump** transcripts to stdout for piping
 - **Search** past transcripts by keyword
-- **Cross-platform**: Linux, macOS, Windows
+- **Cross-platform**: Linux (PipeWire), macOS, Windows
 - Output formats: plain text, JSON (timestamped), SRT, WebVTT
 
 ## Requirements
 
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- PortAudio (usually installed with `sounddevice` wheels)
+- Linux: PipeWire (for system audio capture)
+- macOS: [BlackHole](https://github.com/ExistentialAudio/BlackHole) (for system audio capture)
+- Windows: WASAPI (built-in)
 
 ## Installation
 
 ```bash
-git clone <repo-url> && cd tscribe
+git clone https://github.com/johnrobinsn/tscribe.git && cd tscribe
 uv sync
 ```
 
@@ -29,35 +34,71 @@ Models are downloaded automatically on first transcription (~74MB for the defaul
 ## Quick Start
 
 ```bash
-# Record audio (Ctrl+C to stop, auto-transcribes by default)
+# Record system audio (Ctrl+C to stop, auto-transcribes by default)
 tscribe record
 
-# Transcribe an existing file
-tscribe transcribe meeting.wav
+# Record from microphone instead
+tscribe record --mic
 
-# List recordings and search transcripts
-tscribe list
-tscribe list --search "action items"
+# Play back the last recording
+tscribe play
+
+# Open the transcript in your default editor
+tscribe open
+
+# Print transcript to stdout
+tscribe dump
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `tscribe record` | Record audio from mic or system audio |
+| `tscribe record` | Record system audio or microphone |
+| `tscribe play [REF]` | Play a recording |
+| `tscribe open [REF]` | Open transcript in default program |
+| `tscribe dump [REF]` | Print transcript to stdout |
 | `tscribe transcribe <file>` | Transcribe a WAV file |
 | `tscribe list` | List past recordings |
 | `tscribe devices` | List audio input devices |
 | `tscribe config` | View or set configuration |
 
+REF can be `HEAD` (most recent, default), `HEAD~N` (Nth previous), or a session stem (e.g. `2025-01-15-143022`).
+
 ### Record
 
 ```bash
-tscribe record                        # Default mic, auto-transcribe
-tscribe record --loopback             # Record system audio
-tscribe record --device 3             # Specific device (see tscribe devices)
+tscribe record                        # System audio (default on Linux/Windows)
+tscribe record --mic                  # Record from microphone
+tscribe record --device 56            # Specific device (see tscribe devices)
 tscribe record --no-transcribe        # Skip auto-transcription
 tscribe record -o meeting.wav         # Custom output path
+```
+
+While recording, a live level meter shows audio activity:
+
+```
+● REC 00:05  ▁▂▃▅▇█▆▃▁▁▂▅▇█▇▅▃▂▁▁
+```
+
+### Play
+
+```bash
+tscribe play                          # Play most recent recording
+tscribe play HEAD~1                   # Play previous recording
+tscribe play 2025-01-15-143022        # Play by session ID
+```
+
+### Open & Dump
+
+```bash
+tscribe open                          # Open transcript in default editor
+tscribe open -f json                  # Open JSON transcript
+tscribe open -f wav                   # Open the audio file itself
+tscribe dump                          # Print transcript to stdout
+tscribe dump -f json                  # Print JSON to stdout
+tscribe dump HEAD~1                   # Print previous transcript
+tscribe dump | grep "action items"    # Pipe to other tools
 ```
 
 ### Transcribe
@@ -77,6 +118,13 @@ tscribe list                          # Show recent recordings
 tscribe list --search "meeting"       # Search transcript text
 tscribe list --sort duration          # Sort by duration
 tscribe list -n 50                    # Show 50 entries
+```
+
+### Devices
+
+```bash
+tscribe devices                       # List all audio devices
+tscribe devices --loopback            # Show only loopback/monitor sources
 ```
 
 ### Configuration
@@ -104,13 +152,15 @@ Models are downloaded automatically from Hugging Face on first use.
 
 ## System Audio (Loopback)
 
-| Platform | Setup |
-|----------|-------|
-| Linux | Works automatically via PulseAudio/PipeWire monitor sources |
-| Windows | Works via WASAPI loopback |
+By default, `tscribe record` captures system audio (what you hear through your speakers/headphones). Use `--mic` to record from the microphone instead.
+
+| Platform | How It Works |
+|----------|--------------|
+| Linux | PipeWire native via `pw-record` with monitor capture |
+| Windows | WASAPI loopback (built-in) |
 | macOS | Requires [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install blackhole-2ch` |
 
-Run `tscribe devices --loopback` to see available loopback sources.
+Run `tscribe devices --loopback` to see available loopback sources. Use `--device <id>` to record from a specific microphone or input device.
 
 ## Storage
 
@@ -146,15 +196,17 @@ uv run pytest -m "not slow"
 
 ```
 src/tscribe/
-├── cli.py           # Click CLI with subcommands
-├── config.py        # TOML configuration management
-├── paths.py         # Cross-platform path resolution
-├── devices.py       # Audio device enumeration
-├── session.py       # Recording session & file management
-├── transcriber.py   # faster-whisper transcription
+├── cli.py                # Click CLI with subcommands
+├── config.py             # TOML configuration management
+├── paths.py              # Cross-platform path resolution
+├── devices.py            # Audio device enumeration (sounddevice)
+├── pipewire_devices.py   # PipeWire device enumeration (Linux)
+├── session.py            # Recording session & file management
+├── transcriber.py        # faster-whisper transcription
 └── recorder/
-    ├── base.py      # Abstract Recorder interface
-    ├── sounddevice_recorder.py  # Real audio capture
+    ├── base.py                  # Abstract Recorder interface
+    ├── sounddevice_recorder.py  # sounddevice capture (macOS/Windows)
+    ├── pipewire_recorder.py     # PipeWire capture (Linux)
     └── mock_recorder.py         # Test mock
 ```
 
