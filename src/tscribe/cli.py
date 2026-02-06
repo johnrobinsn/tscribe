@@ -661,6 +661,38 @@ def dump(ref, fmt):
 
 
 @main.command()
+@click.argument("ref", default="HEAD")
+@click.option("--format", "-f", "fmt", default=None,
+              type=click.Choice(["wav", "txt", "json", "srt", "vtt", "meta"]),
+              help="File type (default: wav).")
+def path(ref, fmt):
+    """Print the file path of a recording artifact.
+
+    REF can be HEAD (most recent), HEAD~N (Nth previous), or a session stem.
+
+    \b
+    Examples:
+      tscribe path                 Path to most recent WAV
+      tscribe path -f txt          Path to transcript
+      tscribe path HEAD~1 -f json  Path to previous JSON transcript
+    """
+    from tscribe.config import TscribeConfig
+    from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
+    from tscribe.session import SessionManager
+
+    cfg = TscribeConfig.load(get_config_path(get_data_dir()))
+    data_dir = get_data_dir(cfg.storage.data_dir)
+    mgr = SessionManager(get_recordings_dir(data_dir))
+
+    session = _resolve_session(ref, mgr)
+    ext = fmt or "wav"
+    file_path = session.wav_path.with_suffix(f".{ext}")
+    if not file_path.exists():
+        raise click.ClickException(f"File not found: {file_path.name}")
+    click.echo(str(file_path))
+
+
+@main.command()
 @click.option("--loopback", "-l", is_flag=True, help="Show only loopback/monitor sources.")
 def devices(loopback):
     """List available audio input devices."""
