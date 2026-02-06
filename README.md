@@ -60,6 +60,7 @@ tscribe dump
 | `tscribe dump [REF]` | Print transcript to stdout |
 | `tscribe transcribe <file>` | Transcribe a WAV file |
 | `tscribe list` | List past recordings |
+| `tscribe search <query>` | Search transcript text |
 | `tscribe devices` | List audio input devices |
 | `tscribe config` | View or set configuration |
 
@@ -111,13 +112,42 @@ tscribe transcribe audio.wav --language en      # Force language
 tscribe transcribe audio.wav --gpu              # Use GPU acceleration
 ```
 
-### List & Search
+### List
 
 ```bash
 tscribe list                          # Show recent recordings
-tscribe list --search "meeting"       # Search transcript text
+tscribe list --search "meeting"       # Filter by transcript text
 tscribe list --sort duration          # Sort by duration
 tscribe list -n 50                    # Show 50 entries
+```
+
+Output includes REF, date with day-of-week, duration, and transcription status:
+
+```
+REF       Date                       Duration  Transcribed  File
+----------------------------------------------------------------------------------------
+HEAD      2025-01-15-143022 We        00:05:30          Yes  2025-01-15-143022.wav
+HEAD~1    2025-01-14-091500 Tu        00:03:15          Yes  2025-01-14-091500.wav
+```
+
+### Search
+
+```bash
+tscribe search "action items"         # Search all transcripts
+tscribe search meeting -n 50          # Limit results
+tscribe search budget --sort date     # Sort by date (default)
+```
+
+Shows matching lines with session context:
+
+```
+── 2025-01-15-143022 We (HEAD) ──
+discussed the action items for next week
+
+── 2025-01-14-091500 Tu (HEAD~1) ──
+review action items from Monday's standup
+
+2 matches found.
 ```
 
 ### Devices
