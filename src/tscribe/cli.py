@@ -301,6 +301,14 @@ def transcribe(source, model, language, output, fmt, gpu):
             click.echo(f"  {out_path}")
 
 
+def _hyperlink(url: str, text: str | None = None) -> str:
+    """Format a URL as a clickable OSC 8 hyperlink if stdout is a TTY."""
+    if not sys.stdout.isatty():
+        return text or url
+    display = text or url
+    return f"\033]8;;{url}\033\\{display}\033]8;;\033\\"
+
+
 def _stem_date_str(stem: str) -> str:
     """Format a session stem with a two-char day-of-week suffix."""
     from datetime import datetime
@@ -354,7 +362,8 @@ def list_recordings(limit, search, sort_by, no_header):
         meta = s.metadata or {}
         source_type = meta.get("source_type", "?")
         if source_type == "url":
-            source = meta.get("source_url", "url")
+            url = meta.get("source_url", "")
+            source = _hyperlink(url) if url else "url"
         elif source_type == "file":
             source = meta.get("original_path", "file")
         else:
