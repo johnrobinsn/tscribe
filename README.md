@@ -255,6 +255,8 @@ Each recording produces:
 - `.json` — timestamped transcript with segments
 - `.meta` — recording metadata (device, duration, etc.)
 
+To delete old recordings, simply remove the corresponding files from `~/.tscribe/recordings/`.
+
 ## Development
 
 ```bash
