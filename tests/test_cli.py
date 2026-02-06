@@ -247,13 +247,17 @@ def test_list_with_recordings(monkeypatch, tmp_path):
     rec_dir = tmp_path / "recordings"
     rec_dir.mkdir(parents=True, exist_ok=True)
     _make_wav(rec_dir / "2025-01-15-143022.wav")
-    (rec_dir / "2025-01-15-143022.meta").write_text(json.dumps({"duration_seconds": 10.0}))
+    (rec_dir / "2025-01-15-143022.meta").write_text(json.dumps({
+        "duration_seconds": 10.0, "source_type": "loopback",
+    }))
 
     runner = CliRunner()
     result = runner.invoke(main, ["list"])
     assert result.exit_code == 0
     assert "REF" in result.output
+    assert "Source" in result.output
     assert "HEAD" in result.output
+    assert "loopback" in result.output
     assert "2025-01-15-143022" in result.output
 
 

@@ -339,8 +339,8 @@ def list_recordings(limit, search, sort_by, no_header):
         return
 
     if not no_header:
-        click.echo(f"{'REF':<9} {'Date':<25} {'Duration':>9}  {'Transcribed':>12}  {'File'}")
-        click.echo("-" * 88)
+        click.echo(f"{'REF':<7} {'Date':<22} {'Dur':>8} {'Tx':>2}  {'Source'}")
+        click.echo("-" * 54)
 
     for s in sessions:
         ref = ref_map.get(s.stem, "?")
@@ -351,8 +351,16 @@ def list_recordings(limit, search, sort_by, no_header):
             dur_str = f"{h:02d}:{m:02d}:{sec:02d}"
         else:
             dur_str = "---"
-        trans_str = "Yes" if s.transcribed else "No"
-        click.echo(f"{ref:<9} {date_str:<25} {dur_str:>9}  {trans_str:>12}  {s.wav_path.name}")
+        meta = s.metadata or {}
+        source_type = meta.get("source_type", "?")
+        if source_type == "url":
+            source = meta.get("source_url", "url")
+        elif source_type == "file":
+            source = meta.get("original_path", "file")
+        else:
+            source = source_type
+        trans_str = "Y" if s.transcribed else "N"
+        click.echo(f"{ref:<7} {date_str:<22} {dur_str:>8} {trans_str:>2}  {source}")
 
 
 @main.command()
