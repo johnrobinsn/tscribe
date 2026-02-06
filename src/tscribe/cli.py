@@ -161,22 +161,68 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
         signal.signal(signal.SIGINT, original_handler)
 
 
+def _download_audio(url, output_dir):
+    """Download audio from a URL using yt-dlp. Returns path to WAV file."""
+    from pathlib import Path
+
+    try:
+        import yt_dlp
+    except ImportError:
+        raise click.ClickException(
+            "yt-dlp is required for URL transcription. "
+            "Install it with: uv pip install yt-dlp"
+        )
+
+    output_template = str(Path(output_dir) / "%(title)s.%(ext)s")
+    opts = {
+        "format": "bestaudio/best",
+        "outtmpl": output_template,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "wav",
+        }],
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    click.echo(f"Downloading audio from URL...")
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+    title = info.get("title", "audio")
+    # yt-dlp replaces special chars in filenames; use the prepared filename
+    wav_path = Path(ydl.prepare_filename(info)).with_suffix(".wav")
+    if not wav_path.exists():
+        raise click.ClickException(f"Download failed: expected {wav_path.name}")
+
+    click.echo(f"Downloaded: {wav_path.name}")
+    return wav_path
+
+
 @main.command()
-@click.argument("file", type=click.Path(exists=True))
+@click.argument("source")
 @click.option("--model", "-m", default=None, help="Whisper model size.")
 @click.option("--language", default=None, help="Language code (default: auto-detect).")
 @click.option("--output", "-o", type=click.Path(), default=None, help="Output file path.")
 @click.option("--format", "fmt", default=None, help="Output format: txt,json,srt,vtt,all")
 @click.option("--gpu", is_flag=True, help="Use GPU acceleration.")
-def transcribe(file, model, language, output, fmt, gpu):
-    """Transcribe an audio file."""
+def transcribe(source, model, language, output, fmt, gpu):
+    """Transcribe an audio file or URL.
+
+    SOURCE can be a local file path or a URL (YouTube, etc.).
+    URL transcription requires yt-dlp: pip install yt-dlp
+    """
+    import tempfile
+    import wave
     from pathlib import Path
 
     from tscribe.config import TscribeConfig
-    from tscribe.paths import get_config_path, get_data_dir
+    from tscribe.paths import ensure_dirs, get_config_path, get_data_dir, get_recordings_dir
+    from tscribe.session import SessionManager
     from tscribe.transcriber import Transcriber
 
     cfg = TscribeConfig.load(get_config_path(get_data_dir()))
+    data_dir = get_data_dir(cfg.storage.data_dir)
 
     model_name = model or cfg.transcription.model
     lang = language or cfg.transcription.language
@@ -189,9 +235,53 @@ def transcribe(file, model, language, output, fmt, gpu):
     else:
         output_formats = cfg.transcription.output_formats
 
+    is_url = "://" in source
+
+    if is_url:
+        ensure_dirs(data_dir)
+        tmp_dir = tempfile.mkdtemp(prefix="tscribe_")
+        downloaded = _download_audio(source, tmp_dir)
+
+        # Import into recordings directory so it appears in tscribe list
+        mgr = SessionManager(get_recordings_dir(data_dir))
+        stem, audio_path = mgr.import_external(downloaded)
+
+        # Create metadata from the WAV file
+        duration = 0.0
+        sample_rate = 16000
+        channels = 1
+        try:
+            with wave.open(str(audio_path), "rb") as wf:
+                sample_rate = wf.getframerate()
+                channels = wf.getnchannels()
+                duration = wf.getnframes() / sample_rate
+        except Exception:
+            pass
+
+        meta = {
+            "created": __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ).isoformat(),
+            "duration_seconds": duration,
+            "sample_rate": sample_rate,
+            "channels": channels,
+            "device": "url",
+            "source_type": "url",
+            "source_url": source,
+            "transcribed": False,
+            "model": None,
+            "original_path": None,
+        }
+        mgr.write_metadata(stem, meta)
+    else:
+        audio_path = Path(source)
+        if not audio_path.exists():
+            raise click.ClickException(f"File not found: {source}")
+        stem = None
+        mgr = None
+
     device = "cuda" if gpu else "cpu"
     transcriber = Transcriber(model_name=model_name, device=device)
-    audio_path = Path(file)
 
     click.echo(f"Transcribing {audio_path.name} with model '{model_name}'...")
     result = transcriber.transcribe(
@@ -199,6 +289,10 @@ def transcribe(file, model, language, output, fmt, gpu):
         language=lang,
         output_formats=output_formats,
     )
+
+    # Update metadata if this was a URL import
+    if mgr and stem:
+        mgr.update_metadata(stem, transcribed=True, model=model_name)
 
     click.echo(f"Transcription complete: {len(result.segments)} segments.")
     for fmt_name in output_formats:

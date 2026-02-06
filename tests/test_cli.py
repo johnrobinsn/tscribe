@@ -120,13 +120,20 @@ def test_transcribe_help():
     runner = CliRunner()
     result = runner.invoke(main, ["transcribe", "--help"])
     assert result.exit_code == 0
-    assert "FILE" in result.output
+    assert "SOURCE" in result.output
 
 
-def test_transcribe_missing_file():
+def test_transcribe_missing_source():
     runner = CliRunner()
     result = runner.invoke(main, ["transcribe"])
     assert result.exit_code != 0
+
+
+def test_transcribe_file_not_found():
+    runner = CliRunner()
+    result = runner.invoke(main, ["transcribe", "/nonexistent/file.wav"])
+    assert result.exit_code != 0
+    assert "File not found" in result.output
 
 
 def _mock_whisper_for_cli():
@@ -175,6 +182,53 @@ def test_transcribe_format_all(monkeypatch, tmp_path):
         result = runner.invoke(main, ["transcribe", str(audio_file), "--format", "all"])
 
     assert result.exit_code == 0
+
+
+def test_transcribe_url_missing_ytdlp(monkeypatch, tmp_path):
+    """URL transcription without yt-dlp installed gives helpful error."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    # Ensure yt_dlp is not importable
+    import builtins
+    real_import = builtins.__import__
+
+    def blocked_import(name, *args, **kwargs):
+        if name == "yt_dlp":
+            raise ImportError("No module named 'yt_dlp'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+    runner = CliRunner()
+    result = runner.invoke(main, ["transcribe", "https://www.youtube.com/watch?v=test"])
+    assert result.exit_code != 0
+    assert "yt-dlp" in result.output
+
+
+def test_transcribe_url_with_mock(monkeypatch, tmp_path):
+    """URL transcription downloads audio, imports to recordings, then transcribes."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+
+    # Create a WAV file that _download_audio will "produce"
+    wav_file = tmp_path / "Test Video.wav"
+    _make_wav(wav_file)
+
+    monkeypatch.setattr(
+        "tscribe.cli._download_audio",
+        lambda url, output_dir: wav_file,
+    )
+
+    mock_model = _mock_whisper_for_cli()
+    with patch("faster_whisper.WhisperModel", return_value=mock_model):
+        runner = CliRunner()
+        result = runner.invoke(main, ["transcribe", "https://www.youtube.com/watch?v=test"])
+
+    assert result.exit_code == 0
+    assert "Transcription complete" in result.output
+
+    # Should be imported into recordings dir with metadata
+    rec_dir = tmp_path / "recordings"
+    assert len(list(rec_dir.glob("*.wav"))) == 1
+    assert len(list(rec_dir.glob("*.meta"))) == 1
+    assert len(list(rec_dir.glob("*.txt"))) == 1
 
 
 # ──── list ────
