@@ -2,6 +2,13 @@
 
 Cross-platform CLI tool for recording audio and transcribing it to text using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Runs on modest hardware — no GPU required, but GPU acceleration is supported.
 
+## Use Cases
+
+- Capture both sides of video calls (Teams, Zoom, Meet) for searchable transcripts
+- Voice memos and audio note-taking
+- Transcribe podcasts, lectures, or downloaded audio
+- Generate subtitles (SRT/VTT) from any audio or video source
+
 ## Features
 
 - **Record** system audio (loopback) or microphone with live level meter
@@ -122,6 +129,8 @@ SOURCE defaults to HEAD (most recent recording). Accepts file paths, URLs, or re
 
 URL transcription uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) (installed with tscribe) to download audio, imports it into the recordings directory, and transcribes it. The result appears in `tscribe list` like any other recording.
 
+Use `--format srt` or `--format vtt` to generate subtitle files for adding captions to videos.
+
 A progress bar with ETA is shown during transcription:
 
 ```
@@ -185,6 +194,20 @@ tscribe config recording.auto_transcribe false  # Set a value
 tscribe config transcription.model small        # Change default model
 ```
 
+Config is stored at `~/.tscribe/config.toml`. Available keys and defaults:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `recording.sample_rate` | `16000` | Sample rate in Hz |
+| `recording.channels` | `1` | Number of channels (mono) |
+| `recording.default_device` | `""` | Default audio device (empty = system default) |
+| `recording.auto_transcribe` | `true` | Auto-transcribe after recording |
+| `transcription.model` | `"base"` | Whisper model size (tiny/base/small/medium/large) |
+| `transcription.language` | `"auto"` | Language code or auto-detect |
+| `transcription.output_formats` | `["txt","json"]` | Output formats (txt, json, srt, vtt) |
+| `transcription.gpu` | `false` | Use GPU acceleration |
+| `storage.data_dir` | `""` | Override data directory (empty = `~/.tscribe`) |
+
 ## Whisper Models
 
 | Model | Size | Speed (CPU) | Quality |
@@ -213,7 +236,7 @@ Run `tscribe devices --loopback` to see available loopback sources. Use `--devic
 
 ## Storage
 
-Recordings are stored in `~/.tscribe/recordings/` on all platforms.
+Recordings are stored in `~/.tscribe/recordings/` on all platforms. Override with the `TSCRIBE_DATA_DIR` environment variable or `storage.data_dir` config key.
 
 Each recording produces:
 - `.wav` — audio file
