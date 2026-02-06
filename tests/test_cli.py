@@ -355,7 +355,7 @@ def test_play_help():
 def test_play_head(monkeypatch, tmp_path):
     monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
     stems = _setup_recordings(tmp_path)
-    monkeypatch.setattr("tscribe.cli._find_player", lambda: ["echo"])
+    monkeypatch.setattr("tscribe.cli._play_audio", lambda *a, **kw: None)
     runner = CliRunner()
     result = runner.invoke(main, ["play"])
     assert result.exit_code == 0
@@ -367,7 +367,7 @@ def test_play_head(monkeypatch, tmp_path):
 def test_play_head_offset(monkeypatch, tmp_path):
     monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
     stems = _setup_recordings(tmp_path, count=3)
-    monkeypatch.setattr("tscribe.cli._find_player", lambda: ["echo"])
+    monkeypatch.setattr("tscribe.cli._play_audio", lambda *a, **kw: None)
     runner = CliRunner()
     result = runner.invoke(main, ["play", "HEAD~1"])
     assert result.exit_code == 0
@@ -378,7 +378,7 @@ def test_play_head_offset(monkeypatch, tmp_path):
 def test_play_by_stem(monkeypatch, tmp_path):
     monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
     stems = _setup_recordings(tmp_path)
-    monkeypatch.setattr("tscribe.cli._find_player", lambda: ["echo"])
+    monkeypatch.setattr("tscribe.cli._play_audio", lambda *a, **kw: None)
     runner = CliRunner()
     result = runner.invoke(main, ["play", stems[0]])
     assert result.exit_code == 0
@@ -388,7 +388,7 @@ def test_play_by_stem(monkeypatch, tmp_path):
 def test_play_invalid_ref(monkeypatch, tmp_path):
     monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
     _setup_recordings(tmp_path)
-    monkeypatch.setattr("tscribe.cli._find_player", lambda: ["echo"])
+    monkeypatch.setattr("tscribe.cli._play_audio", lambda *a, **kw: None)
     runner = CliRunner()
     result = runner.invoke(main, ["play", "HEAD~abc"])
     assert result.exit_code != 0
@@ -397,7 +397,7 @@ def test_play_invalid_ref(monkeypatch, tmp_path):
 
 def test_play_no_recordings(monkeypatch, tmp_path):
     monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("tscribe.cli._find_player", lambda: ["echo"])
+    monkeypatch.setattr("tscribe.cli._play_audio", lambda *a, **kw: None)
     runner = CliRunner()
     result = runner.invoke(main, ["play"])
     assert result.exit_code != 0
@@ -407,21 +407,11 @@ def test_play_no_recordings(monkeypatch, tmp_path):
 def test_play_out_of_range(monkeypatch, tmp_path):
     monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
     _setup_recordings(tmp_path, count=2)
-    monkeypatch.setattr("tscribe.cli._find_player", lambda: ["echo"])
+    monkeypatch.setattr("tscribe.cli._play_audio", lambda *a, **kw: None)
     runner = CliRunner()
     result = runner.invoke(main, ["play", "HEAD~10"])
     assert result.exit_code != 0
     assert "not found" in result.output
-
-
-def test_play_no_player(monkeypatch, tmp_path):
-    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
-    _setup_recordings(tmp_path)
-    monkeypatch.setattr("tscribe.cli._find_player", lambda: [])
-    runner = CliRunner()
-    result = runner.invoke(main, ["play"])
-    assert result.exit_code != 0
-    assert "No audio player found" in result.output
 
 
 # ──── open ────

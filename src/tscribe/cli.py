@@ -507,20 +507,111 @@ def _open_file(path) -> None:
         sp.Popen(["xdg-open", str(path)])
 
 
-def _find_player() -> list[str]:
-    """Return command prefix for audio playback, or empty list if none found."""
-    import shutil
+def _play_audio(wav_path, total_duration):
+    """Play a WAV file with progress bar using sounddevice or external player."""
+    import wave
 
+    import numpy as np
+
+    # Try sounddevice first (works everywhere PortAudio is available)
+    try:
+        import sounddevice as sd
+
+        with wave.open(str(wav_path), "rb") as wf:
+            sample_rate = wf.getframerate()
+            channels = wf.getnchannels()
+            n_frames = wf.getnframes()
+            raw = wf.readframes(n_frames)
+
+        data = np.frombuffer(raw, dtype=np.int16).reshape(-1, channels)
+        total = n_frames / sample_rate
+
+        position = [0]  # mutable for callback access
+        finished = threading.Event()
+
+        def callback(outdata, frames, time_info, status):
+            start = position[0]
+            end = min(start + frames, len(data))
+            chunk = end - start
+            if chunk <= 0:
+                outdata[:] = 0
+                finished.set()
+                raise sd.CallbackStop
+            outdata[:chunk] = data[start:end]
+            if chunk < frames:
+                outdata[chunk:] = 0
+            position[0] = end
+
+        stream = sd.OutputStream(
+            samplerate=sample_rate,
+            channels=channels,
+            dtype="int16",
+            callback=callback,
+        )
+        stream.start()
+        try:
+            while not finished.is_set():
+                elapsed = position[0] / sample_rate
+                _render_play_progress(elapsed, total)
+                finished.wait(0.25)
+            _render_play_progress(total, total)
+            click.echo()
+        except KeyboardInterrupt:
+            click.echo("\nStopped.")
+        finally:
+            stream.stop()
+            stream.close()
+        return
+    except (OSError, ImportError):
+        pass
+
+    # Fallback to external players
+    import shutil
+    import subprocess as sp
+
+    player = None
     if sys.platform == "linux":
         for cmd in ["pw-play", "aplay"]:
             if shutil.which(cmd):
-                return [cmd]
+                player = [cmd]
+                break
     elif sys.platform == "darwin":
         if shutil.which("afplay"):
-            return ["afplay"]
-    if shutil.which("ffplay"):
-        return ["ffplay", "-nodisp", "-autoexit"]
-    return []
+            player = ["afplay"]
+    if player is None and shutil.which("ffplay"):
+        player = ["ffplay", "-nodisp", "-autoexit"]
+
+    if player is None:
+        raise click.ClickException("No audio player available. Install sounddevice or ffplay.")
+
+    total = total_duration or 0.0
+    proc = sp.Popen(player + [str(wav_path)])
+    try:
+        start_t = time.monotonic()
+        while proc.poll() is None:
+            elapsed = time.monotonic() - start_t
+            if total > 0:
+                _render_play_progress(elapsed, total)
+            time.sleep(0.25)
+        click.echo()
+    except KeyboardInterrupt:
+        proc.terminate()
+        proc.wait()
+        click.echo("\nStopped.")
+
+
+def _render_play_progress(elapsed, total):
+    """Render an in-place playback progress bar."""
+    minutes, secs = divmod(int(elapsed), 60)
+    t_min, t_sec = divmod(int(total), 60)
+    frac = min(elapsed / total, 1.0) if total > 0 else 0.0
+    filled = int(frac * 30)
+    bar = "█" * filled + "░" * (30 - filled)
+    play_icon = click.style("▶", fg="green")
+    click.echo(
+        f"\r  {play_icon} {minutes:02d}:{secs:02d}/{t_min:02d}:{t_sec:02d}  |{bar}|",
+        nl=False,
+    )
 
 
 def _resolve_session(ref, mgr):
@@ -559,8 +650,6 @@ def play(ref):
       tscribe play HEAD~1     Play previous recording
       tscribe play 2025-01-15-143022   Play by session ID
     """
-    import subprocess as sp
-
     from tscribe.config import TscribeConfig
     from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
     from tscribe.session import SessionManager
@@ -571,12 +660,6 @@ def play(ref):
 
     session = _resolve_session(ref, mgr)
 
-    player = _find_player()
-    if not player:
-        raise click.ClickException(
-            "No audio player found. Install pw-play, aplay, afplay, or ffplay."
-        )
-
     dur_str = ""
     if session.duration_seconds is not None:
         m, s = divmod(int(session.duration_seconds), 60)
@@ -584,29 +667,7 @@ def play(ref):
 
     click.echo(f"Playing: {session.wav_path.name}{dur_str}")
 
-    proc = sp.Popen(player + [str(session.wav_path)])
-    try:
-        start = time.monotonic()
-        total = session.duration_seconds or 0.0
-        while proc.poll() is None:
-            elapsed = time.monotonic() - start
-            if total > 0:
-                minutes, secs = divmod(int(elapsed), 60)
-                t_min, t_sec = divmod(int(total), 60)
-                frac = min(elapsed / total, 1.0)
-                filled = int(frac * 30)
-                bar = "█" * filled + "░" * (30 - filled)
-                play_icon = click.style("▶", fg="green")
-                click.echo(
-                    f"\r  {play_icon} {minutes:02d}:{secs:02d}/{t_min:02d}:{t_sec:02d}  |{bar}|",
-                    nl=False,
-                )
-            time.sleep(0.25)
-        click.echo()
-    except KeyboardInterrupt:
-        proc.terminate()
-        proc.wait()
-        click.echo("\nStopped.")
+    _play_audio(session.wav_path, session.duration_seconds)
 
 
 def _resolve_transcript_path(ref, fmt):
