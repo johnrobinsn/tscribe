@@ -88,7 +88,7 @@ def _mock_whisper_model():
     mock_seg.start = 0.0
     mock_seg.end = 2.5
     mock_seg.text = " Hello world."
-    mock_seg.avg_log_prob = -0.1
+    mock_seg.avg_logprob = -0.1
 
     mock_info = MagicMock()
     mock_info.language = "en"

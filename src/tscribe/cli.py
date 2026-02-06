@@ -1,17 +1,50 @@
 """CLI entry point for tscribe."""
 
+import collections
 import signal
 import sys
 import threading
+import time
 
 import click
 
 from tscribe import __version__
 
 
+def _default_loopback() -> bool:
+    """Whether to default to loopback (system audio) recording."""
+    if sys.platform == "linux":
+        from tscribe.pipewire_devices import is_pipewire_available
+
+        return is_pipewire_available()
+    if sys.platform == "win32":
+        return True
+    if sys.platform == "darwin":
+        try:
+            from tscribe.devices import list_devices
+
+            return any(d.is_loopback for d in list_devices(loopback_only=True))
+        except Exception:
+            return False
+    return False
+
+
 def _create_recorder(config):
-    """Create the appropriate recorder. Can be monkeypatched for testing."""
+    """Create the appropriate recorder based on platform and availability.
+
+    On Linux, prefers PipeWire when available (especially for loopback).
+    Falls back to sounddevice otherwise.
+    """
+    if sys.platform == "linux":
+        from tscribe.pipewire_devices import is_pipewire_available
+
+        if is_pipewire_available():
+            from tscribe.recorder.pipewire_recorder import PipewireRecorder
+
+            return PipewireRecorder()
+
     from tscribe.recorder.sounddevice_recorder import SounddeviceRecorder
+
     return SounddeviceRecorder()
 
 
@@ -43,13 +76,14 @@ def main():
 
 @main.command()
 @click.option("--device", "-d", default=None, help="Audio device name or index.")
-@click.option("--loopback", "-l", is_flag=True, help="Record system audio.")
+@click.option("--loopback/--mic", default=None,
+              help="Record system audio (default) or microphone.")
 @click.option("--output", "-o", type=click.Path(), default=None, help="Output file path.")
 @click.option("--no-transcribe", is_flag=True, help="Don't auto-transcribe after recording.")
 @click.option("--sample-rate", type=int, default=None, help="Sample rate in Hz.")
 @click.option("--channels", type=int, default=None, help="Number of channels.")
 def record(device, loopback, output, no_transcribe, sample_rate, channels):
-    """Record audio from a microphone or system audio."""
+    """Record audio from system audio (default) or microphone."""
     from pathlib import Path
 
     from tscribe.config import TscribeConfig
@@ -68,6 +102,9 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
         wav_path = Path(output)
     else:
         wav_path = session_mgr.recordings_dir / f"{stem}.wav"
+
+    if loopback is None:
+        loopback = False if device else _default_loopback()
 
     rec_config = RecordingConfig(
         sample_rate=sample_rate or cfg.recording.sample_rate,
@@ -95,13 +132,21 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
 
     try:
         recorder.start(wav_path, rec_config)
-        click.echo(f"Recording to {wav_path} (Ctrl+C to stop)...")
+        source = "system audio" if loopback else "microphone"
+        click.echo(f"Recording {source} to {wav_path} (Ctrl+C to stop)...")
+
+        blocks = " ▁▂▃▄▅▆▇█"
+        history = collections.deque([0.0] * 20, maxlen=20)
 
         while not stop_event.is_set():
             elapsed = recorder.elapsed_seconds
             minutes, secs = divmod(int(elapsed), 60)
-            click.echo(f"\r  {minutes:02d}:{secs:02d}", nl=False)
-            stop_event.wait(0.5)
+            lvl = min(recorder.level ** 0.4, 1.0)
+            history.append(lvl)
+            meter = "".join(blocks[int(v * 8)] for v in history)
+            led = click.style("●", fg="red", blink=True)
+            click.echo(f"\r  {led} REC {minutes:02d}:{secs:02d}  {meter}", nl=False)
+            stop_event.wait(0.25)
 
         result = recorder.stop()
         click.echo(f"\nRecording saved: {result.path} ({result.duration_seconds:.1f}s)")
@@ -199,10 +244,220 @@ def list_recordings(limit, search, sort_by, no_header):
         click.echo(f"{date_str:<22} {dur_str:>9}  {trans_str:>12}  {s.wav_path.name}")
 
 
+def _open_file(path) -> None:
+    """Open a file with the OS default program."""
+    import subprocess as sp
+
+    if sys.platform == "darwin":
+        sp.Popen(["open", str(path)])
+    elif sys.platform == "win32":
+        import os as _os
+        _os.startfile(str(path))
+    else:
+        sp.Popen(["xdg-open", str(path)])
+
+
+def _find_player() -> list[str]:
+    """Return command prefix for audio playback, or empty list if none found."""
+    import shutil
+
+    if sys.platform == "linux":
+        for cmd in ["pw-play", "aplay"]:
+            if shutil.which(cmd):
+                return [cmd]
+    elif sys.platform == "darwin":
+        if shutil.which("afplay"):
+            return ["afplay"]
+    if shutil.which("ffplay"):
+        return ["ffplay", "-nodisp", "-autoexit"]
+    return []
+
+
+def _resolve_session(ref, mgr):
+    """Resolve a HEAD/HEAD~N/stem reference to a SessionInfo."""
+    if ref in ("HEAD", "last"):
+        index = 0
+    elif ref.startswith("HEAD~"):
+        try:
+            index = int(ref[5:])
+        except ValueError:
+            raise click.ClickException(f"Invalid ref: {ref}")
+    else:
+        session = mgr.get_session(ref)
+        if session is None:
+            raise click.ClickException(f"Recording not found: {ref}")
+        return session
+
+    sessions = mgr.list_sessions(limit=index + 1, sort_by="date")
+    if index >= len(sessions):
+        raise click.ClickException(
+            f"Recording {ref} not found (only {len(sessions)} recording(s) exist)."
+        )
+    return sessions[index]
+
+
+@main.command()
+@click.argument("ref", default="HEAD")
+def play(ref):
+    """Play a recording.
+
+    REF can be HEAD (most recent), HEAD~N (Nth previous), or a session stem.
+
+    \b
+    Examples:
+      tscribe play            Play most recent recording
+      tscribe play HEAD~1     Play previous recording
+      tscribe play 2025-01-15-143022   Play by session ID
+    """
+    import subprocess as sp
+
+    from tscribe.config import TscribeConfig
+    from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
+    from tscribe.session import SessionManager
+
+    cfg = TscribeConfig.load(get_config_path(get_data_dir()))
+    data_dir = get_data_dir(cfg.storage.data_dir)
+    mgr = SessionManager(get_recordings_dir(data_dir))
+
+    session = _resolve_session(ref, mgr)
+
+    player = _find_player()
+    if not player:
+        raise click.ClickException(
+            "No audio player found. Install pw-play, aplay, afplay, or ffplay."
+        )
+
+    dur_str = ""
+    if session.duration_seconds is not None:
+        m, s = divmod(int(session.duration_seconds), 60)
+        dur_str = f" ({m}m {s:02d}s)"
+
+    click.echo(f"Playing: {session.wav_path.name}{dur_str}")
+
+    proc = sp.Popen(player + [str(session.wav_path)])
+    try:
+        start = time.monotonic()
+        total = session.duration_seconds or 0.0
+        while proc.poll() is None:
+            elapsed = time.monotonic() - start
+            if total > 0:
+                minutes, secs = divmod(int(elapsed), 60)
+                t_min, t_sec = divmod(int(total), 60)
+                frac = min(elapsed / total, 1.0)
+                filled = int(frac * 30)
+                bar = "█" * filled + "░" * (30 - filled)
+                play_icon = click.style("▶", fg="green")
+                click.echo(
+                    f"\r  {play_icon} {minutes:02d}:{secs:02d}/{t_min:02d}:{t_sec:02d}  |{bar}|",
+                    nl=False,
+                )
+            time.sleep(0.25)
+        click.echo()
+    except KeyboardInterrupt:
+        proc.terminate()
+        proc.wait()
+        click.echo("\nStopped.")
+
+
+def _resolve_transcript_path(ref, fmt):
+    """Resolve a session ref + optional format to a transcript file path."""
+    from tscribe.config import TscribeConfig
+    from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
+    from tscribe.session import SessionManager
+
+    cfg = TscribeConfig.load(get_config_path(get_data_dir()))
+    data_dir = get_data_dir(cfg.storage.data_dir)
+    mgr = SessionManager(get_recordings_dir(data_dir))
+
+    session = _resolve_session(ref, mgr)
+
+    if fmt:
+        path = session.wav_path.with_suffix(f".{fmt}")
+        if not path.exists():
+            raise click.ClickException(f"File not found: {path.name}")
+        return path
+
+    for ext in ["txt", "json", "srt", "vtt"]:
+        candidate = session.wav_path.with_suffix(f".{ext}")
+        if candidate.exists():
+            return candidate
+
+    raise click.ClickException(
+        f"No transcript found for {session.stem}. "
+        f"Run: tscribe transcribe {session.wav_path}"
+    )
+
+
+@main.command(name="open")
+@click.argument("ref", default="HEAD")
+@click.option("--format", "-f", "fmt", default=None,
+              type=click.Choice(["txt", "json", "srt", "vtt", "wav"]),
+              help="File format to open (default: first available transcript).")
+def open_file(ref, fmt):
+    """Open a transcription file with the default program.
+
+    REF can be HEAD (most recent), HEAD~N (Nth previous), or a session stem.
+
+    \b
+    Examples:
+      tscribe open                 Open most recent transcript
+      tscribe open -f json         Open JSON transcript
+      tscribe open HEAD~1          Open previous transcript
+      tscribe open -f wav          Open the audio file
+    """
+    path = _resolve_transcript_path(ref, fmt)
+    click.echo(f"Opening: {path.name}")
+    _open_file(path)
+
+
+@main.command()
+@click.argument("ref", default="HEAD")
+@click.option("--format", "-f", "fmt", default=None,
+              type=click.Choice(["txt", "json", "srt", "vtt"]),
+              help="Output format (default: first available transcript).")
+def dump(ref, fmt):
+    """Print a transcription to stdout.
+
+    REF can be HEAD (most recent), HEAD~N (Nth previous), or a session stem.
+
+    \b
+    Examples:
+      tscribe dump                 Print most recent transcript
+      tscribe dump -f json         Print JSON transcript
+      tscribe dump HEAD~1          Print previous transcript
+    """
+    path = _resolve_transcript_path(ref, fmt)
+    click.echo(path.read_text(), nl=False)
+
+
 @main.command()
 @click.option("--loopback", "-l", is_flag=True, help="Show only loopback/monitor sources.")
 def devices(loopback):
     """List available audio input devices."""
+    # Try PipeWire first on Linux
+    if sys.platform == "linux":
+        from tscribe.pipewire_devices import is_pipewire_available, list_pipewire_nodes
+
+        if is_pipewire_available():
+            nodes = list_pipewire_nodes(loopback_only=loopback)
+            if not nodes:
+                if loopback:
+                    click.echo("No PipeWire monitor/loopback sources found.")
+                else:
+                    click.echo("No PipeWire audio nodes found.")
+                return
+
+            click.echo(f"{'Serial':<8} {'Name':<40} {'Type':<10} {'Description'}")
+            click.echo("-" * 85)
+            for n in nodes:
+                type_label = "Monitor" if n.is_monitor else "Input"
+                display_name = n.nick or n.name
+                click.echo(
+                    f"{n.serial:<8} {display_name:<40} {type_label:<10} {n.description}"
+                )
+            return
+
+    # Fall back to sounddevice enumeration
     from tscribe.devices import get_platform_loopback_guidance, list_devices
 
     devs = list_devices(loopback_only=loopback)

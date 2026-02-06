@@ -52,3 +52,9 @@ class Recorder(ABC):
     def elapsed_seconds(self) -> float:
         """Seconds elapsed since recording started."""
         ...
+
+    @property
+    @abstractmethod
+    def level(self) -> float:
+        """Current audio level (0.0 to 1.0)."""
+        ...

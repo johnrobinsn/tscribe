@@ -118,7 +118,7 @@ def test_platform_guidance_linux(monkeypatch):
     monkeypatch.setattr("tscribe.devices.sys.platform", "linux")
     guidance = get_platform_loopback_guidance()
     assert guidance is not None
-    assert "PulseAudio" in guidance
+    assert "PipeWire" in guidance
 
 
 def test_platform_guidance_darwin(monkeypatch):

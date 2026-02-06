@@ -77,3 +77,7 @@ class MockRecorder(Recorder):
         if self._start_time is None:
             return 0.0
         return time.monotonic() - self._start_time
+
+    @property
+    def level(self) -> float:
+        return 0.0

@@ -16,9 +16,25 @@ class AudioDevice:
     hostapi: str
 
 
+def _import_sounddevice():
+    """Import sounddevice, raising a clear error on library conflicts."""
+    try:
+        import sounddevice as sd
+        return sd
+    except OSError as e:
+        if "GLIBCXX" in str(e) or "libstdc++" in str(e):
+            raise OSError(
+                "PortAudio failed to load due to a libstdc++ conflict (likely Anaconda).\n"
+                "Fix: run with the system libstdc++:\n"
+                "  LD_PRELOAD=/lib/x86_64-linux-gnu/libstdc++.so.6 tscribe devices\n"
+                "Or remove Anaconda from your PATH/environment."
+            ) from e
+        raise
+
+
 def list_devices(loopback_only: bool = False) -> list[AudioDevice]:
     """Enumerate available input devices."""
-    import sounddevice as sd
+    sd = _import_sounddevice()
 
     raw_devices = sd.query_devices()
     hostapis = sd.query_hostapis()
@@ -48,7 +64,7 @@ def list_devices(loopback_only: bool = False) -> list[AudioDevice]:
 
 def get_default_device() -> AudioDevice | None:
     """Get the system default input device."""
-    import sounddevice as sd
+    sd = _import_sounddevice()
 
     try:
         info = sd.query_devices(kind="input")
@@ -80,9 +96,9 @@ def get_platform_loopback_guidance() -> str | None:
         )
     if sys.platform == "linux":
         return (
-            "No loopback audio device found.\n"
-            "On Linux, ensure PulseAudio or PipeWire is running.\n"
-            "Monitor sources should appear automatically."
+            "No loopback audio device found via sounddevice.\n"
+            "If PipeWire is running, try: tscribe devices --loopback\n"
+            "PipeWire monitor sources are available for loopback recording."
         )
     if sys.platform == "win32":
         return (

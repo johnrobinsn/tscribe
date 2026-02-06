@@ -113,7 +113,7 @@ class Transcriber:
                     start=seg.start,
                     end=seg.end,
                     text=seg.text,
-                    confidence=seg.avg_log_prob,
+                    confidence=seg.avg_logprob,
                 )
             )
 
