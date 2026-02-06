@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -97,14 +98,21 @@ class Transcriber:
         audio_path: Path,
         language: str = "auto",
         output_formats: list[str] | None = None,
+        progress_callback: Callable[[float, float], None] | None = None,
     ) -> TranscriptResult:
-        """Transcribe an audio file and write output files."""
+        """Transcribe an audio file and write output files.
+
+        If *progress_callback* is provided it is called after each segment
+        with ``(segment_end_seconds, audio_duration_seconds)``.
+        """
         if output_formats is None:
             output_formats = ["txt", "json"]
 
         model = self._get_model()
         lang = None if language == "auto" else language
         segments_iter, info = model.transcribe(str(audio_path), language=lang)
+
+        duration = getattr(info, "duration", 0.0) or 0.0
 
         segments = []
         for seg in segments_iter:
@@ -116,6 +124,8 @@ class Transcriber:
                     confidence=seg.avg_logprob,
                 )
             )
+            if progress_callback and duration > 0:
+                progress_callback(seg.end, duration)
 
         result = TranscriptResult(
             file=audio_path.name,

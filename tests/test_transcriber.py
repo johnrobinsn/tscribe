@@ -92,6 +92,7 @@ def _mock_whisper_model():
 
     mock_info = MagicMock()
     mock_info.language = "en"
+    mock_info.duration = 10.0
 
     mock_model = MagicMock()
     mock_model.transcribe.return_value = ([mock_seg], mock_info)
@@ -185,3 +186,31 @@ class TestTranscriberWriteOutputs:
 
         assert (tmp_path / "test.srt").exists()
         assert (tmp_path / "test.vtt").exists()
+
+
+class TestProgressCallback:
+    def test_callback_invoked(self, tmp_path):
+        mock_model = _mock_whisper_model()
+        t = Transcriber(model_name="base")
+        t._model = mock_model
+
+        audio_path = tmp_path / "audio.wav"
+        audio_path.write_bytes(b"fake wav")
+
+        calls = []
+        t.transcribe(audio_path, output_formats=["txt"], progress_callback=lambda c, d: calls.append((c, d)))
+
+        assert len(calls) == 1
+        assert calls[0] == (2.5, 10.0)
+
+    def test_no_callback(self, tmp_path):
+        """transcribe works fine without a callback."""
+        mock_model = _mock_whisper_model()
+        t = Transcriber(model_name="base")
+        t._model = mock_model
+
+        audio_path = tmp_path / "audio.wav"
+        audio_path.write_bytes(b"fake wav")
+
+        result = t.transcribe(audio_path, output_formats=["txt"])
+        assert len(result.segments) == 1

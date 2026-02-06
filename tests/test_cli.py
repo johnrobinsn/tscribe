@@ -146,6 +146,7 @@ def _mock_whisper_for_cli():
 
     mock_info = MagicMock()
     mock_info.language = "en"
+    mock_info.duration = 5.0
 
     mock_model = MagicMock()
     mock_model.transcribe.return_value = ([mock_seg], mock_info)

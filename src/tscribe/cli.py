@@ -11,6 +11,33 @@ import click
 from tscribe import __version__
 
 
+def _transcription_progress(current: float, total: float, start_time: float) -> None:
+    """Render an in-place progress bar for transcription."""
+    frac = min(current / total, 1.0) if total > 0 else 0.0
+    elapsed = time.monotonic() - start_time
+
+    cur_m, cur_s = divmod(int(current), 60)
+    tot_m, tot_s = divmod(int(total), 60)
+
+    filled = int(frac * 30)
+    bar = "█" * filled + "░" * (30 - filled)
+
+    icon = click.style("⟳", fg="yellow")
+
+    if current > 0 and elapsed > 0:
+        rate = current / elapsed
+        remaining = (total - current) / rate
+        eta_m, eta_s = divmod(int(remaining), 60)
+        eta_str = f"  ETA {eta_m:02d}:{eta_s:02d}"
+    else:
+        eta_str = ""
+
+    click.echo(
+        f"\r  {icon} {cur_m:02d}:{cur_s:02d}/{tot_m:02d}:{tot_s:02d}  |{bar}|{eta_str}  ",
+        nl=False,
+    )
+
+
 def _default_loopback() -> bool:
     """Whether to default to loopback (system audio) recording."""
     if sys.platform == "linux":
@@ -57,15 +84,22 @@ def _auto_transcribe(cfg, wav_path, stem, session_mgr):
     click.echo(f"Transcribing with model '{model_name}'...")
     try:
         transcriber = Transcriber(model_name=model_name)
+        t_start = time.monotonic()
+
+        def _progress(cur: float, total: float) -> None:
+            _transcription_progress(cur, total, t_start)
+
         result = transcriber.transcribe(
             wav_path,
             language=cfg.transcription.language,
             output_formats=cfg.transcription.output_formats,
+            progress_callback=_progress,
         )
+        click.echo()
         session_mgr.update_metadata(stem, transcribed=True, model=model_name)
         click.echo(f"Transcription complete: {len(result.segments)} segments.")
     except Exception as e:
-        click.echo(f"Transcription failed: {e}")
+        click.echo(f"\nTranscription failed: {e}")
 
 
 @click.group()
@@ -284,11 +318,18 @@ def transcribe(source, model, language, output, fmt, gpu):
     transcriber = Transcriber(model_name=model_name, device=device)
 
     click.echo(f"Transcribing {audio_path.name} with model '{model_name}'...")
+    t_start = time.monotonic()
+
+    def _progress(cur: float, total: float) -> None:
+        _transcription_progress(cur, total, t_start)
+
     result = transcriber.transcribe(
         audio_path,
         language=lang,
         output_formats=output_formats,
+        progress_callback=_progress,
     )
+    click.echo()
 
     # Update metadata if this was a URL import
     if mgr and stem:
