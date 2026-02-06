@@ -61,7 +61,7 @@ tscribe dump
 | `tscribe play [REF]` | Play a recording |
 | `tscribe open [REF]` | Open transcript in default program |
 | `tscribe dump [REF]` | Print transcript to stdout |
-| `tscribe transcribe <source>` | Transcribe a file or URL |
+| `tscribe transcribe [SOURCE]` | Transcribe a file, URL, or recording ref |
 | `tscribe list` | List past recordings |
 | `tscribe search <query>` | Search transcript text |
 | `tscribe devices` | List audio input devices |
@@ -108,15 +108,25 @@ tscribe dump | grep "action items"    # Pipe to other tools
 ### Transcribe
 
 ```bash
+tscribe transcribe                              # Re-transcribe most recent recording
+tscribe transcribe --model small                # Re-transcribe with a better model
+tscribe transcribe HEAD~2                       # Re-transcribe a previous recording
 tscribe transcribe audio.wav                    # Local file (base model, txt+json)
 tscribe transcribe "https://youtu.be/dQw4w9W"  # YouTube or other URL
-tscribe transcribe audio.wav --model small      # Higher quality model
 tscribe transcribe audio.wav --format all       # Output txt, json, srt, vtt
 tscribe transcribe audio.wav --language en      # Force language
 tscribe transcribe audio.wav --gpu              # Use GPU acceleration
 ```
 
+SOURCE defaults to HEAD (most recent recording). Accepts file paths, URLs, or recording refs (HEAD, HEAD~N, session stems).
+
 URL transcription uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) (installed with tscribe) to download audio, imports it into the recordings directory, and transcribes it. The result appears in `tscribe list` like any other recording.
+
+A progress bar with ETA is shown during transcription:
+
+```
+  ⟳ 02:30/10:00  |████████░░░░░░░░░░░░░░░░░░░░░░|  ETA 01:30
+```
 
 ### List
 
