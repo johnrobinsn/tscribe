@@ -205,7 +205,7 @@ Print the absolute file path of a recording artifact. Useful for scripting.
 ```
 tscribe path [REF] [-f FORMAT]
 
-FORMAT: wav (default), txt, json, srt, vtt, meta
+FORMAT: txt (default), wav, json, srt, vtt, meta
 ```
 
 #### `tscribe list`

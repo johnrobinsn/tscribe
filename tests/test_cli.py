@@ -555,24 +555,24 @@ def test_path_help():
     assert "file path" in result.output
 
 
-def test_path_wav(monkeypatch, tmp_path):
-    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
-    stems = _setup_recordings(tmp_path)
-    runner = CliRunner()
-    result = runner.invoke(main, ["path"])
-    assert result.exit_code == 0
-    assert f"{stems[-1]}.wav" in result.output
-
-
-def test_path_txt(monkeypatch, tmp_path):
+def test_path_default_txt(monkeypatch, tmp_path):
     monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
     stems = _setup_recordings(tmp_path)
     rec_dir = tmp_path / "recordings"
     (rec_dir / f"{stems[-1]}.txt").write_text("hello")
     runner = CliRunner()
-    result = runner.invoke(main, ["path", "-f", "txt"])
+    result = runner.invoke(main, ["path"])
     assert result.exit_code == 0
     assert f"{stems[-1]}.txt" in result.output
+
+
+def test_path_wav(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    stems = _setup_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["path", "-f", "wav"])
+    assert result.exit_code == 0
+    assert f"{stems[-1]}.wav" in result.output
 
 
 def test_path_missing_format(monkeypatch, tmp_path):

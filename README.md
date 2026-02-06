@@ -116,11 +116,11 @@ tscribe dump | grep "action items"    # Pipe to other tools
 ### Path
 
 ```bash
-tscribe path                          # Path to most recent WAV
-tscribe path -f txt                   # Path to transcript file
+tscribe path                          # Path to most recent transcript
+tscribe path -f wav                   # Path to audio file
 tscribe path HEAD~1 -f json           # Previous session's JSON
 tscribe path -f meta                  # Metadata file
-cat $(tscribe path -f txt)            # Use in scripts
+cat $(tscribe path)                   # Use in scripts
 ```
 
 ### Transcribe

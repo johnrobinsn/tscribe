@@ -664,7 +664,7 @@ def dump(ref, fmt):
 @click.argument("ref", default="HEAD")
 @click.option("--format", "-f", "fmt", default=None,
               type=click.Choice(["wav", "txt", "json", "srt", "vtt", "meta"]),
-              help="File type (default: wav).")
+              help="File type (default: txt).")
 def path(ref, fmt):
     """Print the file path of a recording artifact.
 
@@ -672,8 +672,8 @@ def path(ref, fmt):
 
     \b
     Examples:
-      tscribe path                 Path to most recent WAV
-      tscribe path -f txt          Path to transcript
+      tscribe path                 Path to most recent transcript
+      tscribe path -f wav          Path to audio file
       tscribe path HEAD~1 -f json  Path to previous JSON transcript
     """
     from tscribe.config import TscribeConfig
@@ -685,7 +685,7 @@ def path(ref, fmt):
     mgr = SessionManager(get_recordings_dir(data_dir))
 
     session = _resolve_session(ref, mgr)
-    ext = fmt or "wav"
+    ext = fmt or "txt"
     file_path = session.wav_path.with_suffix(f".{ext}")
     if not file_path.exists():
         raise click.ClickException(f"File not found: {file_path.name}")
