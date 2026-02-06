@@ -244,6 +244,42 @@ def list_recordings(limit, search, sort_by, no_header):
         click.echo(f"{date_str:<22} {dur_str:>9}  {trans_str:>12}  {s.wav_path.name}")
 
 
+@main.command()
+@click.argument("query")
+@click.option("--limit", "-n", default=20, help="Max sessions to show.")
+@click.option("--sort", "sort_by", default="date",
+              type=click.Choice(["date", "duration", "name"]), help="Sort field.")
+def search(query, limit, sort_by):
+    """Search transcript text for a keyword or phrase.
+
+    \b
+    Examples:
+      tscribe search "action items"
+      tscribe search meeting -n 50
+    """
+    from tscribe.config import TscribeConfig
+    from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
+    from tscribe.session import SessionManager
+
+    cfg = TscribeConfig.load(get_config_path(get_data_dir()))
+    data_dir = get_data_dir(cfg.storage.data_dir)
+    mgr = SessionManager(get_recordings_dir(data_dir))
+
+    results = mgr.search_transcripts(query, limit=limit, sort_by=sort_by)
+    if not results:
+        click.echo("No matches found.")
+        return
+
+    for session, lines in results:
+        click.echo(f"── {session.stem} ──")
+        for line in lines:
+            click.echo(line)
+        click.echo()
+
+    count = len(results)
+    click.echo(f"{count} match{'es' if count != 1 else ''} found.")
+
+
 def _open_file(path) -> None:
     """Open a file with the OS default program."""
     import subprocess as sp

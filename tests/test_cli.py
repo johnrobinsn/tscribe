@@ -445,6 +445,63 @@ def test_dump_head_offset(monkeypatch, tmp_path):
     assert "previous" in result.output
 
 
+# ──── search ────
+
+
+def test_search_help():
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "--help"])
+    assert result.exit_code == 0
+    assert "Search transcript text" in result.output
+
+
+def test_search_matches(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    stems = _setup_recordings(tmp_path)
+    rec_dir = tmp_path / "recordings"
+    (rec_dir / f"{stems[-1]}.txt").write_text("discussed the budget today")
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "budget"])
+    assert result.exit_code == 0
+    assert stems[-1] in result.output
+    assert "discussed the budget today" in result.output
+    assert "1 match found." in result.output
+
+
+def test_search_no_matches(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "nonexistent"])
+    assert result.exit_code == 0
+    assert "No matches found." in result.output
+
+
+def test_search_multiple_sessions(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    stems = _setup_recordings(tmp_path, count=3)
+    rec_dir = tmp_path / "recordings"
+    (rec_dir / f"{stems[0]}.txt").write_text("meeting notes here")
+    (rec_dir / f"{stems[2]}.txt").write_text("another meeting recap")
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "meeting"])
+    assert result.exit_code == 0
+    assert stems[0] in result.output
+    assert stems[2] in result.output
+    assert "2 matches found." in result.output
+
+
+def test_search_case_insensitive(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    stems = _setup_recordings(tmp_path)
+    rec_dir = tmp_path / "recordings"
+    (rec_dir / f"{stems[-1]}.txt").write_text("Important ACTION ITEMS below")
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "action items"])
+    assert result.exit_code == 0
+    assert stems[-1] in result.output
+
+
 # ──── devices ────
 
 

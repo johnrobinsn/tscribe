@@ -146,6 +146,39 @@ class SessionManager:
                 pass
         return False
 
+    def search_transcripts(
+        self,
+        query: str,
+        limit: int = 20,
+        sort_by: str = "date",
+    ) -> list[tuple[SessionInfo, list[str]]]:
+        """Search transcript text and return matching sessions with context lines."""
+        query_lower = query.lower()
+        results = []
+
+        for wav_path in self.recordings_dir.glob("*.wav"):
+            stem = wav_path.stem
+            info = self._build_session_info(stem, wav_path)
+            if not info.txt_path or not info.txt_path.exists():
+                continue
+            try:
+                text = info.txt_path.read_text()
+            except OSError:
+                continue
+            matching_lines = [
+                line.strip()
+                for line in text.splitlines()
+                if query_lower in line.lower()
+            ]
+            if matching_lines:
+                results.append((info, matching_lines))
+
+        results.sort(
+            key=lambda r: self._sort_key(r[0], sort_by),
+            reverse=(sort_by == "date"),
+        )
+        return results[:limit]
+
     def _sort_key(self, session: SessionInfo, sort_by: str):
         if sort_by == "date":
             return session.stem

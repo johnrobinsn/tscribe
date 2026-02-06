@@ -179,6 +179,31 @@ class TestGetSession:
         assert session_mgr.get_session("nonexistent") is None
 
 
+class TestSearchTranscripts:
+    def test_search_transcripts(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "2025-01-10-100000.wav")
+        (session_mgr.recordings_dir / "2025-01-10-100000.txt").write_text(
+            "first line\naction items for monday\nlast line"
+        )
+        _create_wav(session_mgr.recordings_dir / "2025-01-11-100000.wav")
+        (session_mgr.recordings_dir / "2025-01-11-100000.txt").write_text(
+            "nothing relevant here"
+        )
+        _create_wav(session_mgr.recordings_dir / "2025-01-12-100000.wav")
+        (session_mgr.recordings_dir / "2025-01-12-100000.txt").write_text(
+            "review action items from standup"
+        )
+
+        results = session_mgr.search_transcripts("action items")
+        assert len(results) == 2
+        stems = [r[0].stem for r in results]
+        assert "2025-01-10-100000" in stems
+        assert "2025-01-12-100000" in stems
+        # Check matching lines are returned
+        for info, lines in results:
+            assert any("action items" in l.lower() for l in lines)
+
+
 class TestImportExternal:
     def test_import_copies_file(self, session_mgr, tmp_path):
         source = tmp_path / "external.wav"
