@@ -198,6 +198,16 @@ Print a transcript to stdout for piping.
 tscribe dump [REF] [-f FORMAT]
 ```
 
+#### `tscribe path`
+
+Print the absolute file path of a recording artifact. Useful for scripting.
+
+```
+tscribe path [REF] [-f FORMAT]
+
+FORMAT: wav (default), txt, json, srt, vtt, meta
+```
+
 #### `tscribe list`
 
 List past recordings and their transcription status.
