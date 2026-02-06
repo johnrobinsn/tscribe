@@ -207,6 +207,18 @@ def transcribe(file, model, language, output, fmt, gpu):
             click.echo(f"  {out_path}")
 
 
+def _stem_date_str(stem: str) -> str:
+    """Format a session stem with a two-char day-of-week suffix."""
+    from datetime import datetime
+
+    try:
+        dt = datetime.strptime(stem, "%Y-%m-%d-%H%M%S")
+        day = dt.strftime("%a")[:2]
+        return f"{stem} {day}"
+    except ValueError:
+        return stem
+
+
 @main.command(name="list")
 @click.option("--limit", "-n", default=20, help="Number of entries to show.")
 @click.option("--search", "-s", default=None, help="Search transcript text.")
@@ -233,12 +245,12 @@ def list_recordings(limit, search, sort_by, no_header):
         return
 
     if not no_header:
-        click.echo(f"{'REF':<9} {'Date':<22} {'Duration':>9}  {'Transcribed':>12}  {'File'}")
-        click.echo("-" * 85)
+        click.echo(f"{'REF':<9} {'Date':<25} {'Duration':>9}  {'Transcribed':>12}  {'File'}")
+        click.echo("-" * 88)
 
     for s in sessions:
         ref = ref_map.get(s.stem, "?")
-        date_str = s.stem
+        date_str = _stem_date_str(s.stem)
         if s.duration_seconds is not None:
             m, sec = divmod(int(s.duration_seconds), 60)
             h, m = divmod(m, 60)
@@ -246,7 +258,7 @@ def list_recordings(limit, search, sort_by, no_header):
         else:
             dur_str = "---"
         trans_str = "Yes" if s.transcribed else "No"
-        click.echo(f"{ref:<9} {date_str:<22} {dur_str:>9}  {trans_str:>12}  {s.wav_path.name}")
+        click.echo(f"{ref:<9} {date_str:<25} {dur_str:>9}  {trans_str:>12}  {s.wav_path.name}")
 
 
 @main.command()
@@ -281,7 +293,7 @@ def search(query, limit, sort_by):
 
     for session, lines in results:
         ref = ref_map.get(session.stem, "?")
-        click.echo(f"── {session.stem} ({ref}) ──")
+        click.echo(f"── {_stem_date_str(session.stem)} ({ref}) ──")
         for line in lines:
             click.echo(line)
         click.echo()
