@@ -1,6 +1,6 @@
 # tscribe
 
-Cross-platform CLI tool for recording audio and transcribing it to text using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Runs on modest hardware — no GPU required.
+Cross-platform CLI tool for recording audio and transcribing it to text using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Runs on modest hardware — no GPU required, but GPU acceleration is supported.
 
 ## Features
 
