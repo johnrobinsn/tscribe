@@ -127,6 +127,9 @@ class Transcriber:
             if progress_callback and duration > 0:
                 progress_callback(seg.end, duration)
 
+        if progress_callback and duration > 0:
+            progress_callback(duration, duration)
+
         result = TranscriptResult(
             file=audio_path.name,
             model=self._model_name,

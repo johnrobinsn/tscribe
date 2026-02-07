@@ -71,7 +71,7 @@ class SounddeviceRecorder(Recorder):
                     self._wav_file.writeframes(indata.tobytes())
                     self._frames_written += frames
                     peak = float(np.max(np.abs(indata.astype(np.float32)))) / 32768.0
-                    self._level = min(1.0, peak * 3)
+                    self._level = peak
 
         self._stream = sd.InputStream(
             samplerate=sample_rate,

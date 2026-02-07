@@ -180,6 +180,6 @@ class PipewireRecorder(Recorder):
                     samples = np.frombuffer(data, dtype=np.int16)
                     peak = float(np.max(np.abs(samples.astype(np.float32)))) / 32768.0
                     with self._lock:
-                        self._level = min(1.0, peak * 3)
+                        self._level = peak
             except (OSError, ValueError):
                 pass  # File not ready or being written

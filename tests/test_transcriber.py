@@ -200,8 +200,9 @@ class TestProgressCallback:
         calls = []
         t.transcribe(audio_path, output_formats=["txt"], progress_callback=lambda c, d: calls.append((c, d)))
 
-        assert len(calls) == 1
+        assert len(calls) == 2
         assert calls[0] == (2.5, 10.0)
+        assert calls[1] == (10.0, 10.0)  # final 100% call
 
     def test_no_callback(self, tmp_path):
         """transcribe works fine without a callback."""

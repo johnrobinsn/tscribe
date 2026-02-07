@@ -75,7 +75,7 @@ class WasapiRecorder(Recorder):
                     self._frames_written += frame_count
                     audio = np.frombuffer(in_data, dtype=np.int16)
                     peak = float(np.max(np.abs(audio.astype(np.float32)))) / 32768.0
-                    self._level = min(1.0, peak * 3)
+                    self._level = peak
             return (in_data, pyaudio.paContinue)
 
         self._stream = self._pyaudio.open(
