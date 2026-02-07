@@ -42,8 +42,12 @@ https://private-user-images.githubusercontent.com/1709257/546508788-dcd6ee47-d2b
 git clone https://github.com/johnrobinsn/tscribe.git && cd tscribe
 uv sync
 
+# Run from the project directory
+uv run tscribe record
+
 # Or install globally (available from any directory)
 uv tool install .
+tscribe record
 ```
 
 Models are downloaded automatically on first transcription (~244MB for the default `small` model).
