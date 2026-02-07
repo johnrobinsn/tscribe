@@ -5,3 +5,8 @@ Uncommitted
 - [ ] transcribe --live transcription or transcription overlapped (ie 30s) delay with recording
 - [ ] ability to tag or add comment to clips for search
 - [ ] better examples of using with claude code (blog or x post)
+- [ ] alias command `list` to `ls`
+- [ ] store recordings as .mp3?
+- [ ] webui with `serve`
+- [ ] add `rm` command to manage old recordings
+

@@ -308,6 +308,3 @@ src/tscribe/
     └── mock_recorder.py         # Test mock
 ```
 
-## License
-
-MIT
