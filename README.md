@@ -36,7 +36,7 @@ git clone https://github.com/johnrobinsn/tscribe.git && cd tscribe
 uv sync
 ```
 
-Models are downloaded automatically on first transcription (~74MB for the default `base` model).
+Models are downloaded automatically on first transcription (~244MB for the default `small` model).
 
 ## Quick Start
 
@@ -213,7 +213,7 @@ Config is stored at `~/.tscribe/config.toml`. Available keys and defaults:
 | `recording.channels` | `1` | Number of channels (mono) |
 | `recording.default_device` | `""` | Default audio device (empty = system default) |
 | `recording.auto_transcribe` | `true` | Auto-transcribe after recording |
-| `transcription.model` | `"base"` | Whisper model size (tiny/base/small/medium/large) |
+| `transcription.model` | `"small"` | Whisper model size (tiny/base/small/medium/large) |
 | `transcription.language` | `"auto"` | Language code or auto-detect |
 | `transcription.output_formats` | `["txt","json"]` | Output formats (txt, json, srt, vtt) |
 | `transcription.gpu` | `false` | Use GPU acceleration |
@@ -229,7 +229,11 @@ Config is stored at `~/.tscribe/config.toml`. Available keys and defaults:
 | medium | ~769MB | ~1x realtime | High |
 | large | ~1.5GB | Slower than realtime | Best |
 
-Default: `base`. Change with `tscribe config transcription.model <size>`.
+Default: `small` — a good balance of speed and accuracy. If transcriptions have too many errors, try `medium` for better quality at the cost of slower processing. For faster but lower-quality results, try `base` or `tiny`. You can also override per-transcription without changing the default:
+
+```bash
+tscribe transcribe --model small
+```
 
 Models are downloaded automatically from Hugging Face on first use.
 

@@ -10,7 +10,7 @@ def test_defaults():
     assert config.recording.sample_rate == 16000
     assert config.recording.channels == 1
     assert config.recording.auto_transcribe is True
-    assert config.transcription.model == "base"
+    assert config.transcription.model == "small"
     assert config.transcription.output_formats == ["txt", "json"]
     assert config.transcription.gpu is False
     assert config.storage.data_dir == ""
@@ -44,7 +44,7 @@ def test_save_and_load_roundtrip(tmp_path):
 def test_get_dotted_key():
     config = TscribeConfig()
     assert config.get("recording.sample_rate") == 16000
-    assert config.get("transcription.model") == "base"
+    assert config.get("transcription.model") == "small"
     assert config.get("storage.data_dir") == ""
 
 
@@ -123,7 +123,7 @@ def test_partial_toml_loads_with_defaults(tmp_path):
     config = TscribeConfig.load(config_path)
     assert config.recording.sample_rate == 48000
     assert config.recording.channels == 1  # default preserved
-    assert config.transcription.model == "base"  # section not in file
+    assert config.transcription.model == "small"  # section not in file
 
 
 def test_unknown_keys_in_toml_ignored(tmp_path):
