@@ -1,4 +1,9 @@
 # tscribe
+![macOS](https://img.shields.io/badge/-macOS-000000?style=flat-square&logo=apple&logoColor=white)
+![Linux](https://img.shields.io/badge/-Linux-FCC624?style=flat-square&logo=linux&logoColor=black)
+![Windows](https://img.shields.io/badge/-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)
+![Python](https://img.shields.io/badge/-Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![CLI](https://img.shields.io/badge/-CLI-000000?style=flat-square&logo=gnu-bash&logoColor=white)
 
 Cross-platform CLI tool for recording audio and transcribing it to text using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Runs on modest hardware — no GPU required, but GPU acceleration is supported.
 
