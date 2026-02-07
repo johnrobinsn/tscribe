@@ -67,6 +67,109 @@ def _default_loopback() -> bool:
     return False
 
 
+def _macos_loopback_preflight():
+    """Check macOS loopback prerequisites; guide, warn, or offer auto-switch.
+
+    Returns (loopback_ok, original_device):
+      loopback_ok: True if loopback recording can proceed, False to fall back to mic.
+      original_device: The output device name to restore after recording, or None.
+    """
+    import shutil
+    import subprocess
+
+    from tscribe.devices import list_devices
+
+    loopback_devices = list_devices(loopback_only=True)
+    if not loopback_devices:
+        click.echo(
+            click.style("Warning: ", fg="yellow")
+            + "No loopback audio device found — recording from microphone instead."
+        )
+        click.echo(
+            "To capture system audio on macOS, see: "
+            "docs/macos-system-audio.md"
+        )
+        return False, None
+
+    # BlackHole (or similar) is available
+    if not shutil.which("SwitchAudioSource"):
+        click.echo()
+        click.echo(
+            click.style("Tip: ", fg="cyan")
+            + "Install switchaudio-osx to let tscribe auto-switch your audio output "
+            "for loopback recording:"
+        )
+        click.echo("  brew install switchaudio-osx")
+        click.echo()
+        return True, None
+
+    # SwitchAudioSource is available — try to auto-switch
+    try:
+        current = subprocess.check_output(
+            ["SwitchAudioSource", "-c"], text=True
+        ).strip()
+        output_devices = subprocess.check_output(
+            ["SwitchAudioSource", "-a", "-t", "output"], text=True
+        ).strip().splitlines()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return True, None
+
+    multi_output = None
+    for dev in output_devices:
+        if "multi-output" in dev.lower():
+            multi_output = dev.strip()
+            break
+
+    if not multi_output:
+        click.echo(
+            click.style("Note: ", fg="yellow")
+            + "No Multi-Output Device found. Create one in Audio MIDI Setup "
+            "to enable auto-switching."
+        )
+        click.echo("See: docs/macos-system-audio.md")
+        return True, None
+
+    if current.lower() == multi_output.lower():
+        return True, None  # already using it
+
+    if click.confirm(
+        f"Switch audio output to '{multi_output}' for system audio capture? "
+        f"(will restore '{current}' on stop)"
+    ):
+        try:
+            subprocess.check_call(
+                ["SwitchAudioSource", "-s", multi_output],
+                stdout=subprocess.DEVNULL,
+            )
+            click.echo(f"Switched output to '{multi_output}'.")
+            return True, current
+        except subprocess.CalledProcessError:
+            click.echo(
+                click.style("Warning: ", fg="yellow")
+                + "Failed to switch audio output. Recording anyway."
+            )
+            return True, None
+
+    return True, None
+
+
+def _macos_restore_audio(device_name):
+    """Restore macOS audio output to the given device."""
+    import subprocess
+
+    try:
+        subprocess.check_call(
+            ["SwitchAudioSource", "-s", device_name],
+            stdout=subprocess.DEVNULL,
+        )
+        click.echo(f"Restored audio output to '{device_name}'.")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        click.echo(
+            click.style("Warning: ", fg="yellow")
+            + f"Failed to restore audio output to '{device_name}'."
+        )
+
+
 def _create_recorder(rec_config):
     """Create the appropriate recorder based on platform and config.
 
@@ -160,6 +263,13 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
     if loopback is None:
         loopback = False if device else _default_loopback()
 
+    # macOS loopback preflight: detect BlackHole/SwitchAudioSource, guide user
+    original_audio_output = None
+    if sys.platform == "darwin" and loopback and not device:
+        loopback_ok, original_audio_output = _macos_loopback_preflight()
+        if not loopback_ok:
+            loopback = False
+
     rec_config = RecordingConfig(
         sample_rate=sample_rate or cfg.recording.sample_rate,
         channels=channels or cfg.recording.channels,
@@ -203,6 +313,9 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
             stop_event.wait(0.25)
 
         result = recorder.stop()
+        if original_audio_output:
+            _macos_restore_audio(original_audio_output)
+            original_audio_output = None
         click.echo(f"\nRecording saved: {result.path} ({result.duration_seconds:.1f}s)")
 
         meta = session_mgr.create_metadata(result)
@@ -213,6 +326,8 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
 
     finally:
         signal.signal(signal.SIGINT, original_handler)
+        if original_audio_output:
+            _macos_restore_audio(original_audio_output)
 
 
 def _download_audio(url, output_dir):
