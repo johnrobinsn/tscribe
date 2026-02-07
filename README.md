@@ -26,7 +26,7 @@ Cross-platform CLI tool for recording audio and transcribing it to text using [f
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - Linux: PipeWire (for system audio capture)
-- macOS: [BlackHole](https://github.com/ExistentialAudio/BlackHole) (for system audio capture)
+- macOS: [BlackHole](https://github.com/ExistentialAudio/BlackHole) (for system audio capture). Optional: [switchaudio-osx](https://github.com/deweller/switchaudio-osx) for auto-switching.
 - Windows: WASAPI (built-in)
 
 ## Installation
@@ -241,7 +241,9 @@ By default, `tscribe record` captures system audio (what you hear through your s
 |----------|--------------|
 | Linux | PipeWire native via `pw-record` with monitor capture |
 | Windows | WASAPI loopback via [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) (auto-installed) |
-| macOS | Requires [BlackHole](https://github.com/ExistentialAudio/BlackHole): `brew install blackhole-2ch` |
+| macOS | Requires [BlackHole](https://github.com/ExistentialAudio/BlackHole) + Multi-Output Device. See [macOS setup guide](docs/macos-system-audio.md). |
+
+On macOS, tscribe will detect your setup and guide you: if BlackHole is missing it warns and falls back to the microphone, and if [switchaudio-osx](https://github.com/deweller/switchaudio-osx) is installed (`brew install switchaudio-osx`) it can automatically switch to your Multi-Output Device when recording and restore your previous output when done.
 
 Run `tscribe devices --loopback` to see available loopback sources. Use `--device <id>` to record from a specific microphone or input device.
 
