@@ -172,6 +172,7 @@ def _macos_restore_audio(device_name):
 
 def _create_dual_recorder(rec_config):
     """Create a DualRecorder that records mic + loopback simultaneously."""
+    from tscribe.recorder import RecordingConfig
     from tscribe.recorder.dual_recorder import DualRecorder
 
     lb_config = RecordingConfig(

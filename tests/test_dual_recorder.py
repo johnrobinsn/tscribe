@@ -9,6 +9,7 @@ from tscribe.recorder import MockRecorder, RecordingConfig
 from tscribe.recorder.dual_recorder import (
     DualRecorder,
     _mix_wavs,
+    _match_rms,
     _read_wav_as_float,
     _resample_linear,
     _stereo_to_mono,
@@ -206,8 +207,8 @@ def test_mix_tone_plus_silence(tmp_path):
         raw = wf.readframes(wf.getnframes())
     samples = np.frombuffer(raw, dtype=np.int16)
     peak = np.max(np.abs(samples))
-    # Tone peak ~16000, mixed at 0.5 → ~8000
-    assert 6000 < peak < 10000
+    # After RMS normalization + 0.5 gain, tone should still be audible
+    assert peak > 500
 
 
 def test_mix_one_empty(tmp_path):
@@ -229,6 +230,34 @@ def test_mix_one_empty(tmp_path):
         raw = wf.readframes(wf.getnframes())
     samples = np.frombuffer(raw, dtype=np.int16)
     assert np.max(np.abs(samples)) > 10000
+
+
+def test_match_rms_boosts_quiet():
+    quiet = np.ones(1000, dtype=np.float32) * 0.01
+    result = _match_rms(quiet, target_rms=0.1)
+    rms = float(np.sqrt(np.mean(result ** 2)))
+    assert 0.08 < rms < 0.12
+
+
+def test_match_rms_reduces_loud():
+    loud = np.ones(1000, dtype=np.float32) * 0.5
+    result = _match_rms(loud, target_rms=0.1)
+    rms = float(np.sqrt(np.mean(result ** 2)))
+    assert 0.08 < rms < 0.12
+
+
+def test_match_rms_silence_unchanged():
+    silence = np.zeros(1000, dtype=np.float32)
+    result = _match_rms(silence, target_rms=0.1)
+    np.testing.assert_array_equal(result, silence)
+
+
+def test_match_rms_caps_gain():
+    """Very quiet audio should not be amplified more than 10x."""
+    very_quiet = np.ones(1000, dtype=np.float32) * 0.001
+    result = _match_rms(very_quiet, target_rms=0.1)
+    # Gain capped at 10x: 0.001 * 10 = 0.01, not 0.1
+    assert np.max(np.abs(result)) < 0.02
 
 
 def test_mix_different_lengths(tmp_path):

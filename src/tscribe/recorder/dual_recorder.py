@@ -132,6 +132,16 @@ def _resample_linear(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndar
     return np.interp(x_new, x_old, audio).astype(np.float32)
 
 
+def _match_rms(audio: np.ndarray, target_rms: float) -> np.ndarray:
+    """Scale audio so its RMS matches *target_rms*. Skips silence."""
+    rms = float(np.sqrt(np.mean(audio ** 2)))
+    if rms < 1e-6:
+        return audio
+    gain = target_rms / rms
+    gain = min(gain, 10.0)
+    return (audio * gain).astype(np.float32)
+
+
 def _mix_wavs(
     mic_path: Path, loopback_path: Path, output_path: Path
 ) -> tuple[float, int, int]:
@@ -175,6 +185,12 @@ def _mix_wavs(
             mic_audio = np.pad(mic_audio, (0, max_len - len(mic_audio)))
         if len(lb_audio) < max_len:
             lb_audio = np.pad(lb_audio, (0, max_len - len(lb_audio)))
+
+        # Boost mic to match loopback loudness so it's audible in the mix.
+        # Leave loopback untouched to preserve its natural volume.
+        lb_rms = float(np.sqrt(np.mean(lb_audio ** 2)))
+        if lb_rms > 1e-6:
+            mic_audio = _match_rms(mic_audio, lb_rms)
 
         mixed = np.clip(mic_audio * 0.5 + lb_audio * 0.5, -1.0, 1.0)
 
