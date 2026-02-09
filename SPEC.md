@@ -20,7 +20,7 @@ V1 focuses on core functionality: **record, transcribe, play, manage, search**.
 
 ### In Scope (V1)
 
-- Audio recording from microphone and system audio (loopback)
+- Audio recording from microphone, system audio (loopback), or both simultaneously
 - Transcription via faster-whisper (CPU by default, GPU optional)
 - Transcription of external audio files, URLs, and previous recordings
 - Progress bar with ETA during transcription
@@ -33,7 +33,6 @@ V1 focuses on core functionality: **record, transcribe, play, manage, search**.
 
 ### Deferred (Post-V1)
 
-- **V1.1**: `--both` flag to record microphone and system audio simultaneously
 - **V1.1**: Timestamped notes/annotations during recording
 - **V1.2**: Speaker diarization (identifying who said what)
 - Real-time streaming transcription during recording
@@ -122,6 +121,7 @@ tscribe record [OPTIONS]
 Options:
   --device, -d DEVICE     Audio device name or index
   --loopback/--mic        Record system audio (default) or microphone
+  --both                  Record mic + system audio simultaneously and mix
   --output, -o PATH       Output file path (default: auto-generated in recordings dir)
   --no-transcribe         Don't auto-transcribe after recording stops
   --sample-rate RATE      Sample rate in Hz (default: 16000)
@@ -129,6 +129,8 @@ Options:
 ```
 
 Recording is stopped with Ctrl+C (SIGINT), which triggers a clean shutdown: finalize the WAV file, then optionally start transcription.
+
+With `--both`, two recorders run simultaneously (mic + loopback) writing to separate temp files. After stopping, both streams are mixed into a single WAV: stereo loopback is downmixed to mono, the mic is resampled to match the loopback rate, and the mic level is boosted to match the loopback RMS so both sides are audible. Cannot be used with `--device`.
 
 Live level meter during recording:
 
@@ -517,9 +519,8 @@ Platform-specific implementation behind a common `Recorder` interface:
 
 These are documented for planning purposes and are explicitly out of scope for V1.
 
-### V1.1 — Dual Recording & Notes
+### V1.1 — Notes & Enhancements
 
-- `--both` flag to record microphone and system audio simultaneously (mixed or separate tracks)
 - `tscribe note "text"` command to attach timestamped notes to the active recording session
 - Notes stored in a sidecar `.notes.json` file
 

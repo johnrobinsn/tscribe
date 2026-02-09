@@ -11,14 +11,14 @@ https://private-user-images.githubusercontent.com/1709257/546508788-dcd6ee47-d2b
 
 ## Use Cases
 
-- Capture both sides of video calls (Teams, Zoom, Meet) for searchable transcripts
+- Capture both sides of video calls (Teams, Zoom, Meet) with `--both` for searchable transcripts
 - Voice memos and audio note-taking
 - Transcribe podcasts, lectures, or downloaded audio
 - Generate subtitles (SRT/VTT) from any audio or video source
 
 ## Features
 
-- **Record** system audio (loopback) or microphone with live level meter
+- **Record** system audio (loopback), microphone, or both simultaneously with live level meter
 - **Transcribe** recordings, WAV files, or URLs (YouTube, etc.) via faster-whisper
 - **Auto-transcribe** after recording stops (configurable)
 - **Play** recordings with progress bar
