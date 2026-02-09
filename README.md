@@ -99,6 +99,7 @@ REF can be `HEAD` (most recent, default), `HEAD~N` (Nth previous), or a session 
 ```bash
 tscribe record                        # System audio (default on Linux/Windows)
 tscribe record --mic                  # Record from microphone
+tscribe record --both                 # Record mic + system audio simultaneously
 tscribe record --device 56            # Specific device (see tscribe devices)
 tscribe record --no-transcribe        # Skip auto-transcription
 tscribe record -o meeting.wav         # Custom output path

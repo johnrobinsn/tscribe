@@ -170,6 +170,37 @@ def _macos_restore_audio(device_name):
         )
 
 
+def _create_dual_recorder(rec_config):
+    """Create a DualRecorder that records mic + loopback simultaneously."""
+    from tscribe.recorder.dual_recorder import DualRecorder
+
+    lb_config = RecordingConfig(
+        sample_rate=rec_config.sample_rate,
+        channels=rec_config.channels,
+        device=rec_config.device,
+        loopback=True,
+    )
+    loopback_recorder = _create_recorder(lb_config)
+
+    if sys.platform == "linux":
+        from tscribe.pipewire_devices import is_pipewire_available
+
+        if is_pipewire_available():
+            from tscribe.recorder.pipewire_recorder import PipewireRecorder
+
+            mic_recorder = PipewireRecorder()
+        else:
+            from tscribe.recorder.sounddevice_recorder import SounddeviceRecorder
+
+            mic_recorder = SounddeviceRecorder()
+    else:
+        from tscribe.recorder.sounddevice_recorder import SounddeviceRecorder
+
+        mic_recorder = SounddeviceRecorder()
+
+    return DualRecorder(mic_recorder, loopback_recorder)
+
+
 def _create_recorder(rec_config):
     """Create the appropriate recorder based on platform and config.
 
@@ -239,7 +270,9 @@ def main():
 @click.option("--no-transcribe", is_flag=True, help="Don't auto-transcribe after recording.")
 @click.option("--sample-rate", type=int, default=None, help="Sample rate in Hz.")
 @click.option("--channels", type=int, default=None, help="Number of channels.")
-def record(device, loopback, output, no_transcribe, sample_rate, channels):
+@click.option("--both", "record_both", is_flag=True, default=False,
+              help="Record mic + system audio simultaneously and mix.")
+def record(device, loopback, output, no_transcribe, sample_rate, channels, record_both):
     """Record audio from system audio (default) or microphone."""
     from pathlib import Path
 
@@ -260,14 +293,22 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
     else:
         wav_path = session_mgr.recordings_dir / f"{stem}.wav"
 
+    if record_both and device:
+        raise click.ClickException("--both cannot be used with --device")
+
     if loopback is None:
         loopback = False if device else _default_loopback()
 
     # macOS loopback preflight: detect BlackHole/SwitchAudioSource, guide user
     original_audio_output = None
-    if sys.platform == "darwin" and loopback and not device:
+    if sys.platform == "darwin" and (loopback or record_both) and not device:
         loopback_ok, original_audio_output = _macos_loopback_preflight()
         if not loopback_ok:
+            if record_both:
+                raise click.ClickException(
+                    "No loopback device found for --both mode. "
+                    "Install BlackHole: brew install blackhole-2ch"
+                )
             loopback = False
 
     rec_config = RecordingConfig(
@@ -277,7 +318,7 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
         loopback=loopback,
     )
 
-    recorder = _create_recorder(rec_config)
+    recorder = _create_dual_recorder(rec_config) if record_both else _create_recorder(rec_config)
     stop_event = threading.Event()
 
     interrupt_count = 0
@@ -296,7 +337,7 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels):
 
     try:
         recorder.start(wav_path, rec_config)
-        source = "system audio" if loopback else "microphone"
+        source = "mic + system audio" if record_both else ("system audio" if loopback else "microphone")
         click.echo(f"Recording {source} to {wav_path} (Ctrl+C to stop)...")
 
         blocks = " ▁▂▃▄▅▆▇█"

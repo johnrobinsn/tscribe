@@ -26,7 +26,7 @@ class RecordingResult:
     sample_rate: int
     channels: int
     device_name: str
-    source_type: str  # "microphone" | "loopback"
+    source_type: str  # "microphone" | "loopback" | "both"
 
 
 class Recorder(ABC):
