@@ -84,6 +84,9 @@ class Transcriber:
     def _get_model(self):
         """Lazy-load the WhisperModel (downloads on first use)."""
         if self._model is None:
+            import os
+
+            os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
             from faster_whisper import WhisperModel
 
             self._model = WhisperModel(
