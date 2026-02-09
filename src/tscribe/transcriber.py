@@ -87,6 +87,7 @@ class Transcriber:
             import os
 
             os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
             from faster_whisper import WhisperModel
 
             self._model = WhisperModel(
