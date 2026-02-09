@@ -478,12 +478,22 @@ def transcribe(source, model, language, output, fmt, gpu):
     def _progress(cur: float, total: float) -> None:
         _transcription_progress(cur, total, t_start)
 
-    result = transcriber.transcribe(
-        audio_path,
-        language=lang,
-        output_formats=output_formats,
-        progress_callback=_progress,
-    )
+    try:
+        result = transcriber.transcribe(
+            audio_path,
+            language=lang,
+            output_formats=output_formats,
+            progress_callback=_progress,
+        )
+    except RuntimeError as exc:
+        if gpu and ("libcublas" in str(exc) or "libcudnn" in str(exc)):
+            click.echo()
+            raise click.ClickException(
+                "GPU libraries not found. Install with GPU support:\n"
+                "  uv tool install 'tscribe[gpu]'\n"
+                "Or run without --gpu to use CPU."
+            )
+        raise
     click.echo()
 
     # Update metadata if this was a URL import

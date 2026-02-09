@@ -48,6 +48,9 @@ uv run tscribe record
 # Or install globally (available from any directory)
 uv tool install .
 tscribe record
+
+# For GPU acceleration (NVIDIA CUDA)
+uv tool install '.[gpu]'
 ```
 
 Models are downloaded automatically on first transcription (~244MB for the default `small` model).

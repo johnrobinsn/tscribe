@@ -15,6 +15,12 @@ dependencies = [
     "PyAudioWPatch>=0.2.12; sys_platform == 'win32'",
 ]
 
+[project.optional-dependencies]
+gpu = [
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12",
+]
+
 [project.scripts]
 tscribe = "tscribe.cli:main"
 
