@@ -2,7 +2,7 @@
 name = "tscribe"
 version = "1.0.0"
 description = "Cross-platform CLI tool for recording audio and transcribing with faster-whisper"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "click>=8.0",
     "sounddevice>=0.4",
