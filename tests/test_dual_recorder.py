@@ -253,10 +253,10 @@ def test_match_rms_silence_unchanged():
 
 
 def test_match_rms_caps_gain():
-    """Very quiet audio should not be amplified more than 10x."""
-    very_quiet = np.ones(1000, dtype=np.float32) * 0.001
+    """Very quiet audio should not be amplified more than 100x."""
+    very_quiet = np.ones(1000, dtype=np.float32) * 0.0001
     result = _match_rms(very_quiet, target_rms=0.1)
-    # Gain capped at 10x: 0.001 * 10 = 0.01, not 0.1
+    # Gain capped at 100x: 0.0001 * 100 = 0.01, not 0.1
     assert np.max(np.abs(result)) < 0.02
 
 

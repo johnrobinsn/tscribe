@@ -138,7 +138,7 @@ def _match_rms(audio: np.ndarray, target_rms: float) -> np.ndarray:
     if rms < 1e-6:
         return audio
     gain = target_rms / rms
-    gain = min(gain, 10.0)
+    gain = min(gain, 100.0)
     return (audio * gain).astype(np.float32)
 
 
