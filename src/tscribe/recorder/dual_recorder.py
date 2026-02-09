@@ -194,6 +194,11 @@ def _mix_wavs(
 
         mixed = np.clip(mic_audio * 0.5 + lb_audio * 0.5, -1.0, 1.0)
 
+    # Normalize to use full dynamic range (peak at 90% to leave headroom)
+    peak = float(np.max(np.abs(mixed)))
+    if peak > 1e-6:
+        mixed = mixed * (0.9 / peak)
+
     # Write mono int16 WAV
     out_samples = (mixed * 32767).astype(np.int16)
     duration = len(out_samples) / output_rate
