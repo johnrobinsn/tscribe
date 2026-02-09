@@ -186,13 +186,15 @@ def _mix_wavs(
         if len(lb_audio) < max_len:
             lb_audio = np.pad(lb_audio, (0, max_len - len(lb_audio)))
 
-        # Boost mic to match loopback loudness so it's audible in the mix.
-        # Leave loopback untouched to preserve its natural volume.
+        # Boost mic toward loopback loudness so voice is audible in the mix,
+        # but only to 50% of loopback RMS to avoid amplifying mic noise floor.
         lb_rms = float(np.sqrt(np.mean(lb_audio ** 2)))
         if lb_rms > 1e-6:
-            mic_audio = _match_rms(mic_audio, lb_rms)
+            mic_audio = _match_rms(mic_audio, lb_rms * 0.5)
 
-        mixed = np.clip(mic_audio * 0.5 + lb_audio * 0.5, -1.0, 1.0)
+        # Asymmetric mix: favour loopback (remote audio) over mic to keep
+        # background noise low while preserving mic voice for transcription.
+        mixed = np.clip(mic_audio * 0.3 + lb_audio * 0.7, -1.0, 1.0)
 
     # Normalize to use full dynamic range (peak at 90% to leave headroom)
     peak = float(np.max(np.abs(mixed)))

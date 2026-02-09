@@ -207,7 +207,7 @@ def test_mix_tone_plus_silence(tmp_path):
         raw = wf.readframes(wf.getnframes())
     samples = np.frombuffer(raw, dtype=np.int16)
     peak = np.max(np.abs(samples))
-    # After RMS normalization + 0.5 gain, tone should still be audible
+    # After RMS matching + 0.3 mic gain + peak normalize, tone should be audible
     assert peak > 500
 
 
