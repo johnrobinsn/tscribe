@@ -170,7 +170,7 @@ def _macos_restore_audio(device_name):
         )
 
 
-def _create_dual_recorder(rec_config):
+def _create_dual_recorder(rec_config, mic_volume=100, mic_filter_hz=200):
     """Create a DualRecorder that records mic + loopback simultaneously."""
     from tscribe.recorder import RecordingConfig
     from tscribe.recorder.dual_recorder import DualRecorder
@@ -199,7 +199,10 @@ def _create_dual_recorder(rec_config):
 
         mic_recorder = SounddeviceRecorder()
 
-    return DualRecorder(mic_recorder, loopback_recorder)
+    return DualRecorder(
+        mic_recorder, loopback_recorder,
+        mic_volume=mic_volume, mic_filter_hz=mic_filter_hz,
+    )
 
 
 def _create_recorder(rec_config):
@@ -273,7 +276,12 @@ def main():
 @click.option("--channels", type=int, default=None, help="Number of channels.")
 @click.option("--both", "record_both", is_flag=True, default=False,
               help="Record mic + system audio simultaneously and mix.")
-def record(device, loopback, output, no_transcribe, sample_rate, channels, record_both):
+@click.option("--mic-volume", type=int, default=None,
+              help="Mic volume in --both mode (0-100, default from config or 100).")
+@click.option("--mic-filter", type=int, default=None,
+              help="High-pass filter cutoff Hz for mic in --both mode (0=off, default from config or 200).")
+def record(device, loopback, output, no_transcribe, sample_rate, channels, record_both,
+           mic_volume, mic_filter):
     """Record audio from system audio (default) or microphone."""
     from pathlib import Path
 
@@ -319,7 +327,12 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels, recor
         loopback=loopback,
     )
 
-    recorder = _create_dual_recorder(rec_config) if record_both else _create_recorder(rec_config)
+    if record_both:
+        mv = mic_volume if mic_volume is not None else cfg.recording.mic_volume
+        mf = mic_filter if mic_filter is not None else cfg.recording.mic_filter_hz
+        recorder = _create_dual_recorder(rec_config, mic_volume=mv, mic_filter_hz=mf)
+    else:
+        recorder = _create_recorder(rec_config)
     stop_event = threading.Event()
 
     interrupt_count = 0

@@ -16,9 +16,17 @@ from tscribe.recorder.base import Recorder, RecordingConfig, RecordingResult
 class DualRecorder(Recorder):
     """Records from mic and loopback simultaneously, mixes into one WAV."""
 
-    def __init__(self, mic_recorder: Recorder, loopback_recorder: Recorder):
+    def __init__(
+        self,
+        mic_recorder: Recorder,
+        loopback_recorder: Recorder,
+        mic_volume: int = 100,
+        mic_filter_hz: int = 200,
+    ):
         self._mic = mic_recorder
         self._loopback = loopback_recorder
+        self._mic_volume = mic_volume
+        self._mic_filter_hz = mic_filter_hz
         self._output_path: Path | None = None
         self._start_time: float | None = None
         self._recording = False
@@ -72,7 +80,11 @@ class DualRecorder(Recorder):
         lb_result = self._loopback.stop()
 
         duration, sample_rate, channels = _mix_wavs(
-            self._mic_tmp, self._loopback_tmp, self._output_path
+            self._mic_tmp,
+            self._loopback_tmp,
+            self._output_path,
+            mic_volume=self._mic_volume,
+            mic_filter_hz=self._mic_filter_hz,
         )
 
         shutil.rmtree(self._tmpdir, ignore_errors=True)
@@ -142,10 +154,34 @@ def _match_rms(audio: np.ndarray, target_rms: float) -> np.ndarray:
     return (audio * gain).astype(np.float32)
 
 
+def _highpass(audio: np.ndarray, cutoff_hz: int, sample_rate: int) -> np.ndarray:
+    """Vectorized high-pass filter via moving-average subtraction.
+
+    Computes a low-pass (moving average over one period of *cutoff_hz*)
+    using cumsum, then subtracts it from the original signal.  Fully
+    vectorized numpy — no Python loops.
+    """
+    if cutoff_hz <= 0 or len(audio) < 2:
+        return audio
+    n = max(2, int(sample_rate / cutoff_hz))
+    # Cumsum trick for O(n) moving average
+    padded = np.concatenate((np.zeros(n, dtype=audio.dtype), audio))
+    cumsum = np.cumsum(padded)
+    low_pass = (cumsum[n:] - cumsum[:-n]) / n
+    return (audio - low_pass[: len(audio)]).astype(np.float32)
+
+
 def _mix_wavs(
-    mic_path: Path, loopback_path: Path, output_path: Path
+    mic_path: Path,
+    loopback_path: Path,
+    output_path: Path,
+    mic_volume: int = 100,
+    mic_filter_hz: int = 200,
 ) -> tuple[float, int, int]:
     """Mix mic and loopback WAVs into a single mono output.
+
+    *mic_volume* (0-100) scales mic level after RMS matching.
+    *mic_filter_hz* applies a high-pass filter to mic (0 to disable).
 
     Returns (duration_seconds, sample_rate, channels).
     """
@@ -157,6 +193,10 @@ def _mix_wavs(
         mic_audio = _stereo_to_mono(mic_audio)
     if lb_ch > 1:
         lb_audio = _stereo_to_mono(lb_audio)
+
+    # High-pass filter on mic to remove low-frequency noise (hum, rumble)
+    if mic_filter_hz > 0 and len(mic_audio) > 0:
+        mic_audio = _highpass(mic_audio, mic_filter_hz, mic_rate)
 
     # Check for empty streams before resampling/padding
     mic_empty = len(mic_audio) == 0
@@ -186,15 +226,15 @@ def _mix_wavs(
         if len(lb_audio) < max_len:
             lb_audio = np.pad(lb_audio, (0, max_len - len(lb_audio)))
 
-        # Boost mic toward loopback loudness so voice is audible in the mix,
-        # but only to 50% of loopback RMS to avoid amplifying mic noise floor.
+        # Boost mic to match loopback loudness so it's audible in the mix.
         lb_rms = float(np.sqrt(np.mean(lb_audio ** 2)))
         if lb_rms > 1e-6:
-            mic_audio = _match_rms(mic_audio, lb_rms * 0.5)
+            mic_audio = _match_rms(mic_audio, lb_rms)
 
-        # Asymmetric mix: favour loopback (remote audio) over mic to keep
-        # background noise low while preserving mic voice for transcription.
-        mixed = np.clip(mic_audio * 0.3 + lb_audio * 0.7, -1.0, 1.0)
+        # Apply mic_volume scaling (0-100 → 0.0-1.0)
+        mic_audio = mic_audio * (mic_volume / 100.0)
+
+        mixed = np.clip(mic_audio * 0.5 + lb_audio * 0.5, -1.0, 1.0)
 
     # Normalize to use full dynamic range (peak at 90% to leave headroom)
     peak = float(np.max(np.abs(mixed)))

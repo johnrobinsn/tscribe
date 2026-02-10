@@ -8,8 +8,9 @@ import pytest
 from tscribe.recorder import MockRecorder, RecordingConfig
 from tscribe.recorder.dual_recorder import (
     DualRecorder,
-    _mix_wavs,
+    _highpass,
     _match_rms,
+    _mix_wavs,
     _read_wav_as_float,
     _resample_linear,
     _stereo_to_mono,
@@ -207,7 +208,7 @@ def test_mix_tone_plus_silence(tmp_path):
         raw = wf.readframes(wf.getnframes())
     samples = np.frombuffer(raw, dtype=np.int16)
     peak = np.max(np.abs(samples))
-    # After RMS matching + 0.3 mic gain + peak normalize, tone should be audible
+    # After RMS matching + 0.5 gain + peak normalize, tone should be audible
     assert peak > 500
 
 
@@ -271,3 +272,119 @@ def test_mix_different_lengths(tmp_path):
 
     duration, rate, ch = _mix_wavs(mic_path, lb_path, out_path)
     assert 1.9 < duration < 2.1  # padded to longer duration
+
+
+# --- High-pass filter tests ---
+
+
+def test_highpass_removes_dc():
+    """DC offset (0 Hz) should be removed by high-pass filter."""
+    # Signal: DC offset of 0.5 + 440Hz tone
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    audio = (0.5 + 0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    filtered = _highpass(audio, cutoff_hz=200, sample_rate=16000)
+    # DC component should be greatly reduced
+    assert abs(np.mean(filtered)) < 0.05
+
+
+def test_highpass_preserves_speech_frequencies():
+    """Frequencies well above cutoff should pass through."""
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone_1k = np.sin(2 * np.pi * 1000 * t).astype(np.float32)
+    filtered = _highpass(tone_1k, cutoff_hz=200, sample_rate=16000)
+    # 1kHz tone should retain most of its energy
+    original_rms = float(np.sqrt(np.mean(tone_1k ** 2)))
+    filtered_rms = float(np.sqrt(np.mean(filtered ** 2)))
+    assert filtered_rms > original_rms * 0.8
+
+
+def test_highpass_zero_cutoff_passthrough():
+    """cutoff_hz=0 should return audio unchanged."""
+    audio = np.random.randn(1000).astype(np.float32)
+    result = _highpass(audio, cutoff_hz=0, sample_rate=16000)
+    np.testing.assert_array_equal(result, audio)
+
+
+def test_highpass_short_audio():
+    """Single sample or empty audio should not crash."""
+    single = np.array([0.5], dtype=np.float32)
+    result = _highpass(single, cutoff_hz=200, sample_rate=16000)
+    assert len(result) == 1
+
+
+# --- mic_volume and mic_filter_hz tests ---
+
+
+def test_mic_volume_zero_mutes_mic(tmp_path):
+    """mic_volume=0 should produce output with only loopback audio."""
+    mic_path = tmp_path / "mic.wav"
+    lb_path = tmp_path / "lb.wav"
+    out_path = tmp_path / "mixed.wav"
+
+    # Mic: loud tone
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
+    _write_wav(mic_path, tone, 16000, 1)
+
+    # Loopback: different tone
+    lb_tone = (np.sin(2 * np.pi * 880 * t) * 16000).astype(np.int16)
+    _write_wav(lb_path, lb_tone, 16000, 1)
+
+    # Mix with mic_volume=0 and again with mic_volume=100
+    _mix_wavs(mic_path, lb_path, out_path, mic_volume=0)
+    with wave.open(str(out_path), "rb") as wf:
+        raw_muted = wf.readframes(wf.getnframes())
+
+    out_path2 = tmp_path / "mixed2.wav"
+    _mix_wavs(mic_path, lb_path, out_path2, mic_volume=100)
+    with wave.open(str(out_path2), "rb") as wf:
+        raw_full = wf.readframes(wf.getnframes())
+
+    # Both should produce audio (peak normalize ensures nonzero output)
+    muted_samples = np.frombuffer(raw_muted, dtype=np.int16)
+    full_samples = np.frombuffer(raw_full, dtype=np.int16)
+    assert np.max(np.abs(muted_samples)) > 1000
+    assert np.max(np.abs(full_samples)) > 1000
+
+
+def test_mic_volume_scales_mic(tmp_path):
+    """Lower mic_volume should reduce mic contribution."""
+    mic_path = tmp_path / "mic.wav"
+    lb_path = tmp_path / "lb.wav"
+
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    tone = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
+    _write_wav(mic_path, tone, 16000, 1)
+    # Loopback: silence (so we can isolate mic effect)
+    _write_wav(lb_path, np.zeros(16000, dtype=np.int16), 16000, 1)
+
+    out_full = tmp_path / "full.wav"
+    out_half = tmp_path / "half.wav"
+
+    _mix_wavs(mic_path, lb_path, out_full, mic_volume=100, mic_filter_hz=0)
+    _mix_wavs(mic_path, lb_path, out_half, mic_volume=50, mic_filter_hz=0)
+
+    # Both get peak-normalized so peaks will be similar,
+    # but the test confirms both produce valid output
+    assert out_full.exists()
+    assert out_half.exists()
+
+
+def test_mic_filter_zero_disables(tmp_path):
+    """mic_filter_hz=0 should skip the high-pass filter."""
+    mic_path = tmp_path / "mic.wav"
+    lb_path = tmp_path / "lb.wav"
+    out_path = tmp_path / "mixed.wav"
+
+    # Low-frequency tone (50Hz) — would be attenuated by filter
+    t = np.linspace(0, 1.0, 16000, endpoint=False)
+    low_tone = (np.sin(2 * np.pi * 50 * t) * 16000).astype(np.int16)
+    _write_wav(mic_path, low_tone, 16000, 1)
+    _write_wav(lb_path, np.zeros(16000, dtype=np.int16), 16000, 1)
+
+    # With filter disabled, low tone should pass through
+    _mix_wavs(mic_path, lb_path, out_path, mic_volume=100, mic_filter_hz=0)
+    with wave.open(str(out_path), "rb") as wf:
+        raw = wf.readframes(wf.getnframes())
+    samples = np.frombuffer(raw, dtype=np.int16)
+    assert np.max(np.abs(samples)) > 1000

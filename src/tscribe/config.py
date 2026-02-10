@@ -31,6 +31,8 @@ class RecordingDefaults:
     channels: int = DEFAULT_CHANNELS
     default_device: str = ""
     auto_transcribe: bool = True
+    mic_volume: int = 100
+    mic_filter_hz: int = 200
 
 
 @dataclass
@@ -155,3 +157,7 @@ def _validate_value(key: str, value: Any) -> None:
         raise ValueError(f"sample_rate must be positive, got {value}")
     if key == "recording.channels" and value <= 0:
         raise ValueError(f"channels must be positive, got {value}")
+    if key == "recording.mic_volume" and not (0 <= value <= 100):
+        raise ValueError(f"mic_volume must be 0-100, got {value}")
+    if key == "recording.mic_filter_hz" and value < 0:
+        raise ValueError(f"mic_filter_hz must be >= 0, got {value}")

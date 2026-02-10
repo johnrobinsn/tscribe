@@ -100,6 +100,8 @@ REF can be `HEAD` (most recent, default), `HEAD~N` (Nth previous), or a session 
 tscribe record                        # System audio (default on Linux/Windows)
 tscribe record --mic                  # Record from microphone
 tscribe record --both                 # Record mic + system audio simultaneously
+tscribe record --both --mic-volume 50 # Reduce mic level in the mix (0-100)
+tscribe record --both --mic-filter 0  # Disable high-pass filter on mic
 tscribe record --device 56            # Specific device (see tscribe devices)
 tscribe record --no-transcribe        # Skip auto-transcription
 tscribe record -o meeting.wav         # Custom output path
@@ -231,6 +233,8 @@ Config is stored at `~/.tscribe/config.toml`. Available keys and defaults:
 | `recording.channels` | `1` | Number of channels (mono) |
 | `recording.default_device` | `""` | Default audio device (empty = system default) |
 | `recording.auto_transcribe` | `true` | Auto-transcribe after recording |
+| `recording.mic_volume` | `100` | Mic level in --both mode (0-100) |
+| `recording.mic_filter_hz` | `200` | High-pass filter cutoff Hz for mic (0 = off) |
 | `transcription.model` | `"small"` | Whisper model size (tiny/base/small/medium/large) |
 | `transcription.language` | `"auto"` | Language code or auto-detect |
 | `transcription.output_formats` | `["txt","json"]` | Output formats (txt, json, srt, vtt) |
