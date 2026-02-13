@@ -633,6 +633,10 @@ def list_recordings(limit, search, sort_by, no_header):
         click.echo(f"{ref:<7} {date_str:<22} {dur_str:>8} {trans_str:>2}  {source}")
 
 
+# Alias: tscribe ls → tscribe list
+main.add_command(list_recordings, name="ls")
+
+
 @main.command()
 @click.argument("query")
 @click.option("--limit", "-n", default=20, help="Max sessions to show.")
