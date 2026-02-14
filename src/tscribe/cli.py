@@ -381,13 +381,84 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels, recor
         loopback=loopback,
     )
 
+    # Overlapped transcription: download model files before recording starts,
+    # then load them in a background thread so recording begins immediately.
+    use_overlapped = not no_transcribe and cfg.recording.auto_transcribe
+    overlapped_refs = {}  # populated by background worker: 'vad', 'streaming'
+    frame_queue = None
+    overlapped_worker = None
+    if use_overlapped:
+        try:
+            from tscribe.transcriber import Transcriber
+            from tscribe.vad import _ensure_model as _ensure_vad_model
+
+            _ensure_vad_model()  # download VAD ONNX if needed (~2 MB)
+            transcriber = Transcriber(model_name=cfg.transcription.model)
+            transcriber.ensure_downloaded()  # download whisper if needed
+        except Exception:
+            use_overlapped = False
+
     if record_both:
         mv = mic_volume if mic_volume is not None else cfg.recording.mic_volume
         mf = mic_filter if mic_filter is not None else cfg.recording.mic_filter_hz
         recorder = _create_dual_recorder(rec_config, mic_volume=mv, mic_filter_hz=mf)
     else:
         recorder = _create_recorder(rec_config)
+
+    if use_overlapped:
+        import queue as _queue
+
+        frame_queue = _queue.Queue()
+
+        def _on_frames(frames, sample_rate, channels):
+            frame_queue.put((frames.copy(), sample_rate, channels))
+
+        recorder.set_frame_callback(_on_frames)
+
+        def _overlapped_worker(stop_evt):
+            try:
+                from tscribe.streaming import StreamingTranscriber
+                from tscribe.vad import VadDetector
+
+                vad = VadDetector()
+                vad.ensure_ready()
+
+                transcriber._get_model()  # load whisper into memory
+
+                streaming = StreamingTranscriber(
+                    transcriber, language=cfg.transcription.language,
+                )
+                streaming.start()
+                vad.set_chunk_callback(streaming.submit_chunk)
+
+                overlapped_refs["vad"] = vad
+                overlapped_refs["streaming"] = streaming
+
+                # Drain frame queue until recording stops
+                while True:
+                    try:
+                        frames, sr, ch = frame_queue.get(timeout=0.5)
+                        vad.process_frames(frames, sr, ch)
+                    except _queue.Empty:
+                        if stop_evt.is_set():
+                            break
+                # Final drain
+                while not frame_queue.empty():
+                    frames, sr, ch = frame_queue.get()
+                    vad.process_frames(frames, sr, ch)
+            except Exception as exc:
+                overlapped_refs["error"] = exc
+
+        # Worker thread is started after stop_event is created (below)
+
     stop_event = threading.Event()
+
+    # Start overlapped worker now that stop_event exists
+    if use_overlapped:
+        overlapped_worker = threading.Thread(
+            target=_overlapped_worker, args=(stop_event,), daemon=True,
+        )
+        overlapped_worker.start()
 
     interrupt_count = 0
     original_handler = signal.getsignal(signal.SIGINT)
@@ -460,7 +531,13 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels, recor
             history.append(lvl)
             meter = "".join(blocks[int(v * 8)] for v in history)
             led = click.style("●", fg="red", blink=True)
-            click.echo(f"\r  {led} REC {time_str}  {meter}", nl=False)
+            chunks_str = ""
+            streaming = overlapped_refs.get("streaming")
+            if streaming is not None:
+                n = streaming.segments_done
+                if n > 0:
+                    chunks_str = click.style(f"  🔤{n}", fg="cyan")
+            click.echo(f"\r  {led} REC {time_str}  {meter}{chunks_str}", nl=False)
             stop_event.wait(0.25)
 
         result = recorder.stop()
@@ -475,7 +552,53 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels, recor
         meta = session_mgr.create_metadata(result, **extra)
         session_mgr.write_metadata(stem, meta)
 
-        if not no_transcribe and cfg.recording.auto_transcribe:
+        # Finish overlapped transcription
+        overlapped_ok = False
+        if use_overlapped and overlapped_worker is not None:
+            overlapped_worker.join(timeout=30)
+            vad = overlapped_refs.get("vad")
+            streaming = overlapped_refs.get("streaming")
+            worker_err = overlapped_refs.get("error")
+
+            if worker_err is not None:
+                click.echo(f"\nOverlapped transcription failed: {worker_err}")
+            elif vad is not None and streaming is not None:
+                try:
+                    vad.flush()
+                    click.echo("Finishing transcription...")
+                    tx_result = streaming.finish()
+                    if tx_result.segments:
+                        import json as _json
+
+                        base_path = wav_path.with_suffix("")
+                        for fmt in cfg.transcription.output_formats:
+                            if fmt == "txt":
+                                base_path.with_suffix(".txt").write_text(tx_result.to_txt())
+                            elif fmt == "json":
+                                base_path.with_suffix(".json").write_text(
+                                    _json.dumps(tx_result.to_json(), indent=2)
+                                )
+                            elif fmt == "srt":
+                                base_path.with_suffix(".srt").write_text(tx_result.to_srt())
+                            elif fmt == "vtt":
+                                base_path.with_suffix(".vtt").write_text(tx_result.to_vtt())
+
+                        session_mgr.update_metadata(
+                            stem,
+                            transcribed=True,
+                            model=cfg.transcription.model,
+                            speech_regions=vad.speech_regions,
+                            vad_threshold=vad.threshold,
+                        )
+                        click.echo(f"Transcription complete: {len(tx_result.segments)} segments.")
+                        overlapped_ok = True
+                    else:
+                        click.echo("No speech detected during recording.")
+                        overlapped_ok = True  # intentionally skip post-hoc
+                except Exception as e:
+                    click.echo(f"\nOverlapped transcription failed: {e}")
+
+        if not overlapped_ok and not no_transcribe and cfg.recording.auto_transcribe:
             _auto_transcribe(cfg, wav_path, stem, session_mgr)
 
     finally:

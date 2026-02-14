@@ -20,7 +20,7 @@ https://private-user-images.githubusercontent.com/1709257/546508788-dcd6ee47-d2b
 
 - **Record** system audio (loopback), microphone, or both simultaneously with live level meter
 - **Transcribe** recordings, WAV files, or URLs (YouTube, etc.) via faster-whisper
-- **Auto-transcribe** after recording stops (configurable)
+- **Auto-transcribe** after recording stops (configurable) — with overlapped transcription, transcription starts *during* recording so results are ready sooner
 - **Play** recordings with progress bar
 - **Open** transcripts in your default editor/viewer
 - **Dump** transcripts to stdout for piping
@@ -307,6 +307,18 @@ uv run pytest --cov=tscribe --cov-report=term-missing
 uv run pytest -m "not slow"
 ```
 
+## Overlapped Transcription
+
+When auto-transcribe is enabled (the default), tscribe transcribes audio *while* you're still recording. It uses [Silero VAD](https://github.com/snakers4/silero-vad) to detect speech boundaries and sends completed speech chunks to a background transcription worker. By the time you stop recording, most (or all) of the transcription is already done.
+
+This works automatically — no extra flags needed. The Silero VAD model (~2 MB) is downloaded on first use.
+
+During recording, a chunk counter shows how many speech segments have been transcribed so far:
+
+```
+● REC 02:30  ▁▂▃▅▇█▆▃▁▁▂▅▇█▇▅▃▂▁▁  🔤3
+```
+
 ## Architecture
 
 ```
@@ -318,6 +330,8 @@ src/tscribe/
 ├── pipewire_devices.py   # PipeWire device enumeration (Linux)
 ├── session.py            # Recording session & file management
 ├── transcriber.py        # faster-whisper transcription
+├── vad.py                # Silero VAD for speech boundary detection
+├── streaming.py          # Background streaming transcription worker
 └── recorder/
     ├── base.py                  # Abstract Recorder interface
     ├── sounddevice_recorder.py  # sounddevice capture (macOS/Windows mic)

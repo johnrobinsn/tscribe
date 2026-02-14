@@ -23,6 +23,7 @@ class SounddeviceRecorder(Recorder):
         self._recording = False
         self._level: float = 0.0
         self._lock = threading.Lock()
+        self._frame_callback = None
 
     def _resolve_device(self, config: RecordingConfig):
         """Resolve the device to use, auto-selecting loopback if needed."""
@@ -72,6 +73,10 @@ class SounddeviceRecorder(Recorder):
                     self._frames_written += frames
                     peak = float(np.max(np.abs(indata.astype(np.float32)))) / 32768.0
                     self._level = peak
+            if self._frame_callback is not None:
+                self._frame_callback(
+                    indata.copy().ravel(), self._actual_sample_rate, config.channels
+                )
 
         self._stream = sd.InputStream(
             samplerate=sample_rate,
