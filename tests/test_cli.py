@@ -768,6 +768,226 @@ def test_search_case_insensitive(monkeypatch, tmp_path):
     assert stems[-1] in result.output
 
 
+# ──── tag ────
+
+
+def _setup_tagged_recordings(tmp_path):
+    """Create test recordings with tags for tag tests."""
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir(parents=True, exist_ok=True)
+    _make_wav(rec_dir / "2025-01-15-143022.wav")
+    (rec_dir / "2025-01-15-143022.meta").write_text(json.dumps({
+        "duration_seconds": 10.0, "source_type": "loopback",
+        "tags": ["meeting", "client"],
+    }))
+    (rec_dir / "2025-01-15-143022.txt").write_text("discussed action items")
+    _make_wav(rec_dir / "2025-01-16-143022.wav")
+    (rec_dir / "2025-01-16-143022.meta").write_text(json.dumps({
+        "duration_seconds": 5.0, "source_type": "microphone",
+        "tags": ["meeting"],
+    }))
+    (rec_dir / "2025-01-16-143022.txt").write_text("quick meeting note")
+    _make_wav(rec_dir / "2025-01-17-143022.wav")
+    (rec_dir / "2025-01-17-143022.meta").write_text(json.dumps({
+        "duration_seconds": 8.0, "source_type": "loopback",
+    }))
+    (rec_dir / "2025-01-17-143022.txt").write_text("untagged recording text")
+
+
+def test_tag_add(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["tag", "HEAD", "new-tag"])
+    assert result.exit_code == 0
+    assert "new-tag" in result.output
+
+
+def test_tag_show(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    # HEAD is 2025-01-17 which has no tags
+    result = runner.invoke(main, ["tag", "HEAD"])
+    assert result.exit_code == 0
+    assert "No tags." in result.output
+    # HEAD~2 is 2025-01-15 which has meeting, client
+    result = runner.invoke(main, ["tag", "HEAD~2"])
+    assert result.exit_code == 0
+    assert "meeting" in result.output
+    assert "client" in result.output
+
+
+def test_tag_remove(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    # HEAD~2 has [meeting, client]
+    result = runner.invoke(main, ["tag", "HEAD~2", "-r", "client"])
+    assert result.exit_code == 0
+    assert "meeting" in result.output
+    assert "client" not in result.output
+
+
+def test_tag_clear(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["tag", "HEAD~2", "--clear"])
+    assert result.exit_code == 0
+    assert "Tags cleared." in result.output
+
+
+def test_tag_all(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["tag", "--all"])
+    assert result.exit_code == 0
+    assert "meeting (2)" in result.output
+    assert "client (1)" in result.output
+
+
+def test_tag_remove_and_clear_exclusive(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["tag", "HEAD", "-r", "--clear"])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_tag_remove_no_tags_arg(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["tag", "HEAD", "-r"])
+    assert result.exit_code != 0
+    assert "Specify tags to remove" in result.output
+
+
+# ──── list with tags ────
+
+
+def test_list_tag_filter(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["list", "--tag", "client"])
+    assert result.exit_code == 0
+    assert "2025-01-15-143022" in result.output
+    assert "2025-01-17-143022" not in result.output
+
+
+def test_list_untagged(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["list", "--untagged"])
+    assert result.exit_code == 0
+    assert "2025-01-17-143022" in result.output
+    assert "2025-01-15-143022" not in result.output
+
+
+def test_list_no_tag_filter(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["list", "--no-tag", "client"])
+    assert result.exit_code == 0
+    assert "2025-01-15-143022" not in result.output
+    assert "2025-01-16-143022" in result.output
+    assert "2025-01-17-143022" in result.output
+
+
+def test_list_shows_tags_column(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["list"])
+    assert result.exit_code == 0
+    assert "Tags" in result.output
+    assert "[meeting, client]" in result.output
+
+
+# ──── search with tags/dump ────
+
+
+def test_search_tag_filter(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "--tag", "meeting"])
+    assert result.exit_code == 0
+    assert "2 matches found." in result.output
+
+
+def test_search_tag_with_query(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "action", "--tag", "meeting"])
+    assert result.exit_code == 0
+    assert "1 match found." in result.output
+    assert "2025-01-15-143022" in result.output
+
+
+def test_search_dump(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "--tag", "client", "--dump"])
+    assert result.exit_code == 0
+    assert "discussed action items" in result.output
+    assert "tags: meeting, client" in result.output
+
+
+def test_search_dump_with_query(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "action", "--dump"])
+    assert result.exit_code == 0
+    assert "discussed action items" in result.output
+
+
+def test_search_untagged(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_tagged_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "--untagged"])
+    assert result.exit_code == 0
+    assert "2025-01-17-143022" in result.output
+    assert "1 match found." in result.output
+
+
+def test_search_no_args_errors(monkeypatch, tmp_path):
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(main, ["search"])
+    assert result.exit_code != 0
+    assert "Provide a search query" in result.output
+
+
+# ──── record --tag ────
+
+
+def test_record_with_tags(monkeypatch, tmp_path):
+    result = _run_record_with_mock(
+        monkeypatch, tmp_path,
+        extra_args=["--tag", "meeting", "--tag", "client"],
+    )
+    assert result.exit_code == 0
+    assert "Recording saved" in result.output
+
+    # Check metadata has tags
+    rec_dir = tmp_path / "recordings"
+    meta_files = list(rec_dir.glob("*.meta"))
+    assert len(meta_files) == 1
+    meta = json.loads(meta_files[0].read_text())
+    assert meta["tags"] == ["meeting", "client"]
+
+
 # ──── devices ────
 
 
