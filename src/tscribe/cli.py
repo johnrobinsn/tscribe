@@ -280,15 +280,67 @@ def main():
               help="Mic volume in --both mode (0-100, default from config or 100).")
 @click.option("--mic-filter", type=int, default=None,
               help="High-pass filter cutoff Hz for mic in --both mode (0=off, default from config or 200).")
+@click.option("--start-offset", default=None,
+              help="Delay before recording starts (e.g. 30s, 5m, 1h30m).")
+@click.option("--end-duration", default=None,
+              help="Stop recording after this duration (e.g. 30m, 2h).")
+@click.option("--start", "start_time", default=None,
+              help="Start recording at this time (e.g. 14:30, 9am, tomorrow 9am).")
+@click.option("--end", "end_time", default=None,
+              help="Stop recording at this time (e.g. 15:00, 10am).")
 def record(device, loopback, output, no_transcribe, sample_rate, channels, record_both,
-           mic_volume, mic_filter):
+           mic_volume, mic_filter, start_offset, end_duration, start_time, end_time):
     """Record audio from system audio (default) or microphone."""
+    from datetime import datetime
     from pathlib import Path
 
     from tscribe.config import TscribeConfig
     from tscribe.paths import ensure_dirs, get_config_path, get_data_dir, get_recordings_dir
     from tscribe.recorder import RecordingConfig
     from tscribe.session import SessionManager
+
+    # Validate mutually exclusive scheduling options
+    if start_offset and start_time:
+        raise click.ClickException("--start-offset and --start are mutually exclusive.")
+    if end_duration and end_time:
+        raise click.ClickException("--end-duration and --end are mutually exclusive.")
+
+    # Parse scheduling options
+    from tscribe.timeparse import parse_duration, parse_time
+
+    wait_seconds = None
+    max_duration = None
+    end_dt = None
+
+    if start_offset:
+        try:
+            wait_seconds = parse_duration(start_offset)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+    elif start_time:
+        try:
+            start_dt = parse_time(start_time)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        wait_seconds = (start_dt - datetime.now()).total_seconds()
+        if wait_seconds < 0:
+            raise click.ClickException(f"Start time {start_time} is in the past.")
+
+    if end_duration:
+        try:
+            max_duration = parse_duration(end_duration)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+    elif end_time:
+        try:
+            end_dt = parse_time(end_time)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        if start_time:
+            if end_dt <= start_dt:
+                raise click.ClickException("--end must be after --start.")
+        elif end_dt <= datetime.now():
+            raise click.ClickException(f"End time {end_time} is in the past.")
 
     cfg = TscribeConfig.load(get_config_path(get_data_dir()))
     data_dir = get_data_dir(cfg.storage.data_dir)
@@ -350,21 +402,63 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels, recor
     signal.signal(signal.SIGINT, handle_sigint)
 
     try:
+        # Pre-start countdown
+        if wait_seconds and wait_seconds > 0:
+            target = time.monotonic() + wait_seconds
+            click.echo(f"Waiting to start recording... (Ctrl+C to cancel)")
+            while not stop_event.is_set():
+                remaining = target - time.monotonic()
+                if remaining <= 0:
+                    break
+                rm, rs = divmod(int(remaining), 60)
+                rh, rm = divmod(rm, 60)
+                icon = click.style("⏳", fg="cyan")
+                click.echo(f"\r  {icon} Starting in {rh:02d}:{rm:02d}:{rs:02d}...", nl=False)
+                stop_event.wait(min(remaining, 0.5))
+            if stop_event.is_set():
+                click.echo("\nCancelled.")
+                return
+            click.echo("\r" + " " * 40 + "\r", nl=False)
+
         recorder.start(wav_path, rec_config)
         source = "mic + system audio" if record_both else ("system audio" if loopback else "microphone")
-        click.echo(f"Recording {source} to {wav_path} (Ctrl+C to stop)...")
+        stop_hint = ""
+        if max_duration:
+            dm, ds = divmod(int(max_duration), 60)
+            stop_hint = f", auto-stop after {dm:02d}:{ds:02d}"
+        elif end_dt:
+            stop_hint = f", auto-stop at {end_dt.strftime('%H:%M')}"
+        click.echo(f"Recording {source} to {wav_path} (Ctrl+C to stop{stop_hint})...")
 
         blocks = " ▁▂▃▄▅▆▇█"
         history = collections.deque([0.0] * 20, maxlen=20)
 
         while not stop_event.is_set():
             elapsed = recorder.elapsed_seconds
+
+            # Auto-stop checks
+            if max_duration and elapsed >= max_duration:
+                click.echo()
+                click.echo("Duration reached, stopping...")
+                stop_event.set()
+                break
+            if end_dt and datetime.now() >= end_dt:
+                click.echo()
+                click.echo("End time reached, stopping...")
+                stop_event.set()
+                break
+
             minutes, secs = divmod(int(elapsed), 60)
+            if max_duration:
+                t_min, t_sec = divmod(int(max_duration), 60)
+                time_str = f"{minutes:02d}:{secs:02d}/{t_min:02d}:{t_sec:02d}"
+            else:
+                time_str = f"{minutes:02d}:{secs:02d}"
             lvl = min(recorder.level ** 0.4, 1.0)
             history.append(lvl)
             meter = "".join(blocks[int(v * 8)] for v in history)
             led = click.style("●", fg="red", blink=True)
-            click.echo(f"\r  {led} REC {minutes:02d}:{secs:02d}  {meter}", nl=False)
+            click.echo(f"\r  {led} REC {time_str}  {meter}", nl=False)
             stop_event.wait(0.25)
 
         result = recorder.stop()
@@ -691,7 +785,7 @@ def _open_file(path) -> None:
         sp.Popen(["xdg-open", str(path)])
 
 
-def _play_audio(wav_path, total_duration):
+def _play_audio(wav_path, total_duration, start_secs=0.0, end_secs=None):
     """Play a WAV file with progress bar using sounddevice or external player."""
     import wave
 
@@ -710,18 +804,29 @@ def _play_audio(wav_path, total_duration):
         data = np.frombuffer(raw, dtype=np.int16).reshape(-1, channels)
         total = n_frames / sample_rate
 
+        # Apply seeking: skip to start_secs, limit to end_secs
+        start_frame = int(start_secs * sample_rate)
+        if end_secs is not None:
+            stop_frame = min(int(end_secs * sample_rate), len(data))
+        else:
+            stop_frame = len(data)
+        start_frame = min(start_frame, len(data))
+
+        play_data = data[start_frame:stop_frame]
+        play_total = len(play_data) / sample_rate
+
         position = [0]  # mutable for callback access
         finished = threading.Event()
 
         def callback(outdata, frames, time_info, status):
             start = position[0]
-            end = min(start + frames, len(data))
+            end = min(start + frames, len(play_data))
             chunk = end - start
             if chunk <= 0:
                 outdata[:] = 0
                 finished.set()
                 raise sd.CallbackStop
-            outdata[:chunk] = data[start:end]
+            outdata[:chunk] = play_data[start:end]
             if chunk < frames:
                 outdata[chunk:] = 0
             position[0] = end
@@ -735,10 +840,12 @@ def _play_audio(wav_path, total_duration):
         stream.start()
         try:
             while not finished.is_set():
-                elapsed = position[0] / sample_rate
-                _render_play_progress(elapsed, total)
+                elapsed = start_secs + position[0] / sample_rate
+                display_total = end_secs if end_secs is not None else total
+                _render_play_progress(elapsed, display_total)
                 finished.wait(0.25)
-            _render_play_progress(total, total)
+            final = end_secs if end_secs is not None else total
+            _render_play_progress(final, final)
             click.echo()
         except KeyboardInterrupt:
             click.echo("\nStopped.")
@@ -749,9 +856,12 @@ def _play_audio(wav_path, total_duration):
     except (OSError, ImportError):
         pass
 
-    # Fallback to external players
+    # Fallback to external players (no seeking support)
     import shutil
     import subprocess as sp
+
+    if start_secs > 0 or end_secs is not None:
+        click.echo("Note: Seeking requires sounddevice. Playing from start.")
 
     player = None
     if sys.platform == "linux":
@@ -823,20 +933,26 @@ def _resolve_session(ref, mgr):
 
 @main.command()
 @click.argument("ref", default="HEAD")
-def play(ref):
+@click.option("--start-offset", default=None,
+              help="Seek to this position before playing (e.g. 5m, 1h20m).")
+@click.option("--end-duration", default=None,
+              help="Stop playback after this duration from start-offset (e.g. 10m).")
+def play(ref, start_offset, end_duration):
     """Play a recording.
 
     REF can be HEAD (most recent), HEAD~N (Nth previous), or a session stem.
 
     \b
     Examples:
-      tscribe play            Play most recent recording
-      tscribe play HEAD~1     Play previous recording
-      tscribe play 2025-01-15-143022   Play by session ID
+      tscribe play                          Play most recent recording
+      tscribe play HEAD~1                   Play previous recording
+      tscribe play --start-offset 5m        Start from 5 minutes in
+      tscribe play --start-offset 5m --end-duration 2m   Play 5:00 to 7:00
     """
     from tscribe.config import TscribeConfig
     from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
     from tscribe.session import SessionManager
+    from tscribe.timeparse import parse_duration
 
     cfg = TscribeConfig.load(get_config_path(get_data_dir()))
     data_dir = get_data_dir(cfg.storage.data_dir)
@@ -844,14 +960,44 @@ def play(ref):
 
     session = _resolve_session(ref, mgr)
 
+    start_secs = 0.0
+    end_secs = None
+
+    if start_offset:
+        try:
+            start_secs = parse_duration(start_offset)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        if session.duration_seconds and start_secs >= session.duration_seconds:
+            raise click.ClickException(
+                f"--start-offset ({start_offset}) exceeds recording duration "
+                f"({session.duration_seconds:.0f}s)."
+            )
+
+    if end_duration:
+        try:
+            dur = parse_duration(end_duration)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        end_secs = start_secs + dur
+
     dur_str = ""
     if session.duration_seconds is not None:
         m, s = divmod(int(session.duration_seconds), 60)
         dur_str = f" ({m}m {s:02d}s)"
 
-    click.echo(f"Playing: {session.wav_path.name}{dur_str}")
+    range_str = ""
+    if start_secs > 0 or end_secs is not None:
+        sm, ss = divmod(int(start_secs), 60)
+        range_str = f" from {sm:02d}:{ss:02d}"
+        if end_secs is not None:
+            em, es = divmod(int(end_secs), 60)
+            range_str += f" to {em:02d}:{es:02d}"
 
-    _play_audio(session.wav_path, session.duration_seconds)
+    click.echo(f"Playing: {session.wav_path.name}{dur_str}{range_str}")
+
+    _play_audio(session.wav_path, session.duration_seconds,
+                start_secs=start_secs, end_secs=end_secs)
 
 
 def _resolve_transcript_path(ref, fmt):

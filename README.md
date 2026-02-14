@@ -105,6 +105,10 @@ tscribe record --both --mic-filter 0  # Disable high-pass filter on mic
 tscribe record --device 56            # Specific device (see tscribe devices)
 tscribe record --no-transcribe        # Skip auto-transcription
 tscribe record -o meeting.wav         # Custom output path
+tscribe record --end-duration 30m     # Stop after 30 minutes
+tscribe record --start-offset 5m      # Start recording in 5 minutes
+tscribe record --start "14:30"        # Start at 2:30 PM
+tscribe record --start "tomorrow 9am" --end "tomorrow 10am"  # Schedule
 ```
 
 While recording, a live level meter shows audio activity:
@@ -119,6 +123,8 @@ While recording, a live level meter shows audio activity:
 tscribe play                          # Play most recent recording
 tscribe play HEAD~1                   # Play previous recording
 tscribe play 2025-01-15-143022        # Play by session ID
+tscribe play --start-offset 5m        # Start from 5 minutes in
+tscribe play --start-offset 5m --end-duration 2m  # Play 5:00 to 7:00
 ```
 
 ### Open & Dump
