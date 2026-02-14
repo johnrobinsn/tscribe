@@ -1462,3 +1462,21 @@ def config(key, value, list_all):
         raise click.ClickException(str(e))
     cfg.save(config_path)
     click.echo(f"Set {key} = {cfg.get(key)!r}")
+
+
+@main.command()
+def update():
+    """Check for a newer version of tscribe."""
+    from tscribe.update_check import get_latest_release, is_newer
+
+    click.echo(f"tscribe v{__version__}", nl=False)
+    result = get_latest_release()
+    if result is None:
+        click.echo(" \u2014 could not check for updates (network error).")
+        return
+    latest_ver, release_url = result
+    if is_newer(latest_ver, __version__):
+        click.echo(f" \u2014 a new version is available: v{latest_ver}")
+        click.echo(f"  {release_url}")
+    else:
+        click.echo(" \u2014 you're up to date.")

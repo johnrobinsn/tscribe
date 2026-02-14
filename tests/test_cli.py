@@ -35,13 +35,13 @@ def test_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert "1.0.0" in result.output
 
 
 def test_subcommands_registered():
     runner = CliRunner()
     result = runner.invoke(main, ["--help"])
-    for cmd in ("record", "transcribe", "list", "devices", "config"):
+    for cmd in ("record", "transcribe", "list", "devices", "config", "update"):
         assert cmd in result.output, f"Subcommand '{cmd}' not found in help output"
 
 
@@ -1217,3 +1217,39 @@ def test_config_set_invalid(monkeypatch, tmp_path):
     runner = CliRunner()
     result = runner.invoke(main, ["config", "transcription.model", "nonexistent"])
     assert result.exit_code != 0
+
+
+# ──── update ────
+
+
+def test_update_newer_available():
+    with patch(
+        "tscribe.update_check.get_latest_release",
+        return_value=("2.0.0", "https://github.com/johnrobinsn/tscribe/releases/tag/v2.0.0"),
+    ):
+        runner = CliRunner()
+        result = runner.invoke(main, ["update"])
+    assert result.exit_code == 0
+    assert "a new version is available: v2.0.0" in result.output
+    assert "github.com/johnrobinsn/tscribe/releases" in result.output
+
+
+def test_update_up_to_date():
+    from tscribe import __version__
+
+    with patch(
+        "tscribe.update_check.get_latest_release",
+        return_value=(__version__, "https://example.com"),
+    ):
+        runner = CliRunner()
+        result = runner.invoke(main, ["update"])
+    assert result.exit_code == 0
+    assert "up to date" in result.output
+
+
+def test_update_network_error():
+    with patch("tscribe.update_check.get_latest_release", return_value=None):
+        runner = CliRunner()
+        result = runner.invoke(main, ["update"])
+    assert result.exit_code == 0
+    assert "could not check for updates" in result.output
