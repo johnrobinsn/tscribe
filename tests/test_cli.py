@@ -113,6 +113,142 @@ def test_record_with_auto_transcribe_failure(monkeypatch, tmp_path):
     assert "Transcription failed" in result.output or "Recording saved" in result.output
 
 
+# ──── scheduled record ────
+
+
+def test_record_end_duration_auto_stop(monkeypatch, tmp_path):
+    """--end-duration should auto-stop the recording."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    mock_recorder = MockRecorder(duration=1.0)
+
+    def fake_create(cfg):
+        return mock_recorder
+
+    monkeypatch.setattr("tscribe.cli._create_recorder", fake_create)
+    runner = CliRunner()
+    # 1s duration — MockRecorder's elapsed_seconds is wall-clock based,
+    # so the auto-stop check (elapsed >= max_duration) triggers quickly
+    result = runner.invoke(main, ["record", "--mic", "--no-transcribe", "--end-duration", "1s"])
+    assert result.exit_code == 0
+    assert "Duration reached" in result.output or "Recording saved" in result.output
+
+
+def test_record_mutually_exclusive_start(monkeypatch, tmp_path):
+    """--start-offset and --start cannot be used together."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(main, ["record", "--mic", "--no-transcribe",
+                                  "--start-offset", "5m", "--start", "14:30"])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_record_mutually_exclusive_end(monkeypatch, tmp_path):
+    """--end-duration and --end cannot be used together."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(main, ["record", "--mic", "--no-transcribe",
+                                  "--end-duration", "30m", "--end", "15:00"])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_record_invalid_duration(monkeypatch, tmp_path):
+    """Invalid duration format should error."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(main, ["record", "--mic", "--no-transcribe",
+                                  "--end-duration", "abc"])
+    assert result.exit_code != 0
+    assert "Invalid" in result.output
+
+
+def test_record_start_offset_shows_countdown(monkeypatch, tmp_path):
+    """--start-offset should show countdown then record."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    mock_recorder = MockRecorder(duration=0.5)
+
+    call_count = [0]
+
+    def fake_create(cfg):
+        def trigger_stop():
+            import time as _t, signal as _s
+            _t.sleep(0.2)
+            _s.raise_signal(_s.SIGINT)
+        threading.Thread(target=trigger_stop, daemon=True).start()
+        return mock_recorder
+
+    monkeypatch.setattr("tscribe.cli._create_recorder", fake_create)
+    runner = CliRunner()
+    # 1s offset — short enough to pass quickly in tests
+    result = runner.invoke(main, ["record", "--mic", "--no-transcribe",
+                                  "--start-offset", "1s"])
+    assert result.exit_code == 0
+    assert "Starting in" in result.output or "Recording saved" in result.output
+
+
+# ──── play seeking ────
+
+
+def test_play_start_offset(monkeypatch, tmp_path):
+    """--start-offset should seek into the recording."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    stems = _setup_recordings(tmp_path)
+
+    called_with = {}
+
+    def mock_play(wav_path, total_duration, start_secs=0.0, end_secs=None):
+        called_with["start_secs"] = start_secs
+        called_with["end_secs"] = end_secs
+
+    monkeypatch.setattr("tscribe.cli._play_audio", mock_play)
+    runner = CliRunner()
+    result = runner.invoke(main, ["play", "--start-offset", "5s"])
+    assert result.exit_code == 0
+    assert called_with["start_secs"] == 5.0
+    assert called_with["end_secs"] is None
+
+
+def test_play_start_and_end(monkeypatch, tmp_path):
+    """--start-offset + --end-duration should play a range."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    stems = _setup_recordings(tmp_path)
+
+    called_with = {}
+
+    def mock_play(wav_path, total_duration, start_secs=0.0, end_secs=None):
+        called_with["start_secs"] = start_secs
+        called_with["end_secs"] = end_secs
+
+    monkeypatch.setattr("tscribe.cli._play_audio", mock_play)
+    runner = CliRunner()
+    result = runner.invoke(main, ["play", "--start-offset", "2s", "--end-duration", "3s"])
+    assert result.exit_code == 0
+    assert called_with["start_secs"] == 2.0
+    assert called_with["end_secs"] == 5.0  # 2s + 3s = 5s
+
+
+def test_play_start_offset_exceeds_duration(monkeypatch, tmp_path):
+    """--start-offset beyond recording duration should error."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_recordings(tmp_path)  # 10s recordings
+    monkeypatch.setattr("tscribe.cli._play_audio", lambda *a, **kw: None)
+    runner = CliRunner()
+    result = runner.invoke(main, ["play", "--start-offset", "1h"])
+    assert result.exit_code != 0
+    assert "exceeds" in result.output
+
+
+def test_play_invalid_offset(monkeypatch, tmp_path):
+    """Invalid offset format should error."""
+    monkeypatch.setenv("TSCRIBE_DATA_DIR", str(tmp_path))
+    _setup_recordings(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["play", "--start-offset", "abc"])
+    assert result.exit_code != 0
+    assert "Invalid" in result.output
+
+
 # ──── transcribe ────
 
 
