@@ -838,7 +838,7 @@ def list_recordings(limit, search, sort_by, no_header, filter_tags, exclude_tags
         return
 
     if not no_header:
-        click.echo(f"{'REF':<7} {'Date':<22} {'Dur':>8} {'Tx':>2}  {'Source':<12} {'Tags'}")
+        click.echo(f"{'REF':<7} {'Date':<22} {'Dur':>8} {'Tx':>2}  {'Tags':<14} {'Source'}")
         click.echo("-" * 70)
 
     for s in sessions:
@@ -861,8 +861,11 @@ def list_recordings(limit, search, sort_by, no_header, filter_tags, exclude_tags
             source = source_type
         trans_str = "Y" if s.transcribed else "N"
         session_tags = meta.get("tags") or []
-        tags_str = f"  [{', '.join(session_tags)}]" if session_tags else ""
-        click.echo(f"{ref:<7} {date_str:<22} {dur_str:>8} {trans_str:>2}  {source}{tags_str}")
+        tags_joined = ", ".join(session_tags)
+        if len(tags_joined) > 12:
+            tags_joined = tags_joined[:11] + "\u2026"
+        tags_col = f"  {tags_joined:<14}" if tags_joined else " " * 16
+        click.echo(f"{ref:<7} {date_str:<22} {dur_str:>8} {trans_str:>2}{tags_col} {source}")
 
 
 # Alias: tscribe ls → tscribe list

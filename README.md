@@ -189,14 +189,14 @@ tscribe list --sort duration          # Sort by duration
 tscribe list -n 50                    # Show 50 entries
 ```
 
-Output includes REF, date with day-of-week, duration, transcription status, source, and tags:
+Output includes REF, date with day-of-week, duration, transcription status, tags (max 12 chars), and source:
 
 ```
-REF     Date                      Dur Tx  Tags              Source
+REF     Date                      Dur Tx  Tags            Source
 ----------------------------------------------------------------------
-HEAD    2025-01-15-143022 We  00:05:30  Y  meeting, client   loopback
-HEAD~1  2025-01-14-091500 Tu  00:03:15  Y                    https://youtu.be/dQw4w9W
-HEAD~2  2025-01-13-100000 Mo  00:10:00  N  personal          microphone
+HEAD    2025-01-15-143022 We  00:05:30  Y  meeting, cli…   loopback
+HEAD~1  2025-01-14-091500 Tu  00:03:15  Y                  https://youtu.be/dQw4w9W
+HEAD~2  2025-01-13-100000 Mo  00:10:00  N  personal        microphone
 ```
 
 URLs are clickable hyperlinks in supported terminals.

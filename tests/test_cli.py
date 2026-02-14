@@ -910,7 +910,8 @@ def test_list_shows_tags_column(monkeypatch, tmp_path):
     result = runner.invoke(main, ["list"])
     assert result.exit_code == 0
     assert "Tags" in result.output
-    assert "[meeting, client]" in result.output
+    # "meeting, client" (15 chars) is truncated to 12 with ellipsis
+    assert "meeting, cl\u2026" in result.output
 
 
 # ──── search with tags/dump ────
