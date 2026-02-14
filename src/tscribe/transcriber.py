@@ -81,6 +81,12 @@ class Transcriber:
         self._compute_type = compute_type or ("float16" if device == "cuda" else "int8")
         self._model = None
 
+    def ensure_downloaded(self) -> None:
+        """Ensure model files are downloaded without loading into memory."""
+        from faster_whisper.utils import download_model
+
+        download_model(self._model_name)
+
     def _get_model(self):
         """Lazy-load the WhisperModel (downloads on first use)."""
         if self._model is None:

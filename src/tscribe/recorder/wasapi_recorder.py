@@ -26,6 +26,7 @@ class WasapiRecorder(Recorder):
         self._lock = threading.Lock()
         self._actual_sample_rate: int = 48000
         self._actual_channels: int = 2
+        self._frame_callback = None
 
     def _resolve_loopback_device(self, config: RecordingConfig):
         """Find the WASAPI loopback device to record from."""
@@ -76,6 +77,12 @@ class WasapiRecorder(Recorder):
                     audio = np.frombuffer(in_data, dtype=np.int16)
                     peak = float(np.max(np.abs(audio.astype(np.float32)))) / 32768.0
                     self._level = peak
+            if self._frame_callback is not None:
+                self._frame_callback(
+                    np.frombuffer(in_data, dtype=np.int16).copy(),
+                    self._actual_sample_rate,
+                    self._actual_channels,
+                )
             return (in_data, pyaudio.paContinue)
 
         self._stream = self._pyaudio.open(

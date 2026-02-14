@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -58,3 +59,11 @@ class Recorder(ABC):
     def level(self) -> float:
         """Current audio level (0.0 to 1.0)."""
         ...
+
+    def set_frame_callback(self, callback: Callable | None) -> None:
+        """Register callback for raw audio frames.
+
+        Callback signature: ``callback(frames, sample_rate, channels)``
+        where *frames* is a flat numpy int16 array (interleaved if multi-channel).
+        """
+        self._frame_callback = callback

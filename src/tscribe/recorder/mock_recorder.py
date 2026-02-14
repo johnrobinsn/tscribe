@@ -28,6 +28,7 @@ class MockRecorder(Recorder):
         self._start_time: float | None = None
         self._recording = False
         self._duration_written: float = 0.0
+        self._frame_callback = None
 
     def start(self, output_path: Path, config: RecordingConfig) -> None:
         if self._recording:

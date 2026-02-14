@@ -105,7 +105,10 @@ def test_record_with_auto_transcribe_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr("tscribe.cli._create_recorder", fake_create)
 
-    with patch("faster_whisper.WhisperModel", side_effect=RuntimeError("Model not available")):
+    # Patch both download_model (used during pre-download) and WhisperModel
+    # (used during post-hoc fallback) to simulate model unavailability.
+    with patch("faster_whisper.utils.download_model", side_effect=RuntimeError("Download failed")), \
+         patch("faster_whisper.WhisperModel", side_effect=RuntimeError("Model not available")):
         runner = CliRunner()
         result = runner.invoke(main, ["record", "--mic"])
 
