@@ -24,7 +24,8 @@ https://private-user-images.githubusercontent.com/1709257/546508788-dcd6ee47-d2b
 - **Play** recordings with progress bar
 - **Open** transcripts in your default editor/viewer
 - **Dump** transcripts to stdout for piping
-- **Search** past transcripts by keyword
+- **Search** past transcripts by keyword, with `--dump` to output full transcripts
+- **Tag** recordings for organization and filtering
 - **Cross-platform**: Linux (PipeWire), macOS, Windows
 - Output formats: plain text, JSON (timestamped), SRT, WebVTT
 
@@ -88,7 +89,8 @@ tscribe dump
 | `tscribe path [REF]` | Print file path of a recording artifact |
 | `tscribe transcribe [SOURCE]` | Transcribe a file, URL, or recording ref |
 | `tscribe list` | List past recordings |
-| `tscribe search <query>` | Search transcript text |
+| `tscribe search [query]` | Search transcript text |
+| `tscribe tag [REF] [tags...]` | Add, remove, or view tags |
 | `tscribe devices` | List audio input devices |
 | `tscribe config` | View or set configuration |
 
@@ -105,6 +107,7 @@ tscribe record --both --mic-filter 0  # Disable high-pass filter on mic
 tscribe record --device 56            # Specific device (see tscribe devices)
 tscribe record --no-transcribe        # Skip auto-transcription
 tscribe record -o meeting.wav         # Custom output path
+tscribe record --tag meeting --tag client  # Tag the recording
 tscribe record --end-duration 30m     # Stop after 30 minutes
 tscribe record --start-offset 5m      # Start recording in 5 minutes
 tscribe record --start "14:30"        # Start at 2:30 PM
@@ -179,18 +182,21 @@ A progress bar with ETA is shown during transcription:
 ```bash
 tscribe list                          # Show recent recordings
 tscribe list --search "meeting"       # Filter by transcript text
+tscribe list --tag meeting            # Filter by tag (repeatable, AND logic)
+tscribe list --no-tag draft           # Exclude sessions with this tag
+tscribe list --untagged               # Show only untagged recordings
 tscribe list --sort duration          # Sort by duration
 tscribe list -n 50                    # Show 50 entries
 ```
 
-Output includes REF, date with day-of-week, duration, transcription status, and source:
+Output includes REF, date with day-of-week, duration, transcription status, source, and tags:
 
 ```
-REF     Date                      Dur Tx  Source
-------------------------------------------------------
-HEAD    2025-01-15-143022 We  00:05:30  Y  loopback
-HEAD~1  2025-01-14-091500 Tu  00:03:15  Y  https://youtu.be/dQw4w9W
-HEAD~2  2025-01-13-100000 Mo  00:10:00  N  microphone
+REF     Date                      Dur Tx  Tags              Source
+----------------------------------------------------------------------
+HEAD    2025-01-15-143022 We  00:05:30  Y  meeting, client   loopback
+HEAD~1  2025-01-14-091500 Tu  00:03:15  Y                    https://youtu.be/dQw4w9W
+HEAD~2  2025-01-13-100000 Mo  00:10:00  N  personal          microphone
 ```
 
 URLs are clickable hyperlinks in supported terminals.
@@ -198,9 +204,14 @@ URLs are clickable hyperlinks in supported terminals.
 ### Search
 
 ```bash
-tscribe search "action items"         # Search all transcripts
-tscribe search meeting -n 50          # Limit results
-tscribe search budget --sort date     # Sort by date (default)
+tscribe search "action items"                  # Search all transcripts
+tscribe search meeting -n 50                   # Limit results
+tscribe search budget --sort date              # Sort by date (default)
+tscribe search --tag meeting                   # Tag filter only (no text query)
+tscribe search "action items" --tag meeting    # Text + tag filter
+tscribe search --tag meeting --dump            # Dump full transcripts for tagged sessions
+tscribe search --untagged                      # Untagged sessions
+tscribe search --no-tag draft                  # Exclude sessions with "draft" tag
 ```
 
 Shows matching lines with session context:
@@ -214,6 +225,20 @@ review action items from Monday's standup
 
 2 matches found.
 ```
+
+With `--dump`, outputs the full transcript text for each matching session instead of individual matching lines.
+
+### Tag
+
+```bash
+tscribe tag HEAD meeting client       # Add tags to most recent recording
+tscribe tag HEAD                      # Show tags for most recent recording
+tscribe tag HEAD~1 -r meeting         # Remove a tag
+tscribe tag HEAD --clear              # Remove all tags
+tscribe tag --all                     # List all tags across all recordings
+```
+
+Tags are normalized to lowercase. Use `--tag` on `record`, `list`, and `search` to tag at recording time or filter by tag.
 
 ### Devices
 
@@ -313,7 +338,7 @@ When auto-transcribe is enabled (the default), tscribe transcribes audio *while*
 
 This works automatically — no extra flags needed. The Silero VAD model (~2 MB) is downloaded on first use.
 
-During recording, a chunk counter shows how many speech segments have been transcribed so far:
+During recording, a segment counter shows how many transcript segments have been produced so far:
 
 ```
 ● REC 02:30  ▁▂▃▅▇█▆▃▁▁▂▅▇█▇▅▃▂▁▁  🔤3
@@ -337,6 +362,7 @@ src/tscribe/
     ├── sounddevice_recorder.py  # sounddevice capture (macOS/Windows mic)
     ├── wasapi_recorder.py       # WASAPI loopback capture (Windows)
     ├── pipewire_recorder.py     # PipeWire capture (Linux)
+    ├── dual_recorder.py         # Mic + loopback simultaneous capture
     └── mock_recorder.py         # Test mock
 ```
 
