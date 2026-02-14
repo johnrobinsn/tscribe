@@ -280,8 +280,9 @@ def main():
               help="Mic volume in --both mode (0-100, default from config or 100).")
 @click.option("--mic-filter", type=int, default=None,
               help="High-pass filter cutoff Hz for mic in --both mode (0=off, default from config or 200).")
+@click.option("--tag", "record_tags", multiple=True, help="Tag the recording (repeatable).")
 def record(device, loopback, output, no_transcribe, sample_rate, channels, record_both,
-           mic_volume, mic_filter):
+           mic_volume, mic_filter, record_tags):
     """Record audio from system audio (default) or microphone."""
     from pathlib import Path
 
@@ -373,7 +374,10 @@ def record(device, loopback, output, no_transcribe, sample_rate, channels, recor
             original_audio_output = None
         click.echo(f"\nRecording saved: {result.path} ({result.duration_seconds:.1f}s)")
 
-        meta = session_mgr.create_metadata(result)
+        extra = {}
+        if record_tags:
+            extra["tags"] = [t.strip().lower() for t in record_tags]
+        meta = session_mgr.create_metadata(result, **extra)
         session_mgr.write_metadata(stem, meta)
 
         if not no_transcribe and cfg.recording.auto_transcribe:
@@ -588,7 +592,10 @@ def _stem_date_str(stem: str) -> str:
 @click.option("--sort", "sort_by", default="date", type=click.Choice(["date", "duration", "name"]),
               help="Sort field.")
 @click.option("--no-header", is_flag=True, help="Omit table header.")
-def list_recordings(limit, search, sort_by, no_header):
+@click.option("--tag", "filter_tags", multiple=True, help="Filter to sessions with this tag (repeatable, AND).")
+@click.option("--no-tag", "exclude_tags", multiple=True, help="Exclude sessions with this tag (repeatable).")
+@click.option("--untagged", is_flag=True, help="Show only sessions with no tags.")
+def list_recordings(limit, search, sort_by, no_header, filter_tags, exclude_tags, untagged):
     """List past recordings and their transcription status."""
     from tscribe.config import TscribeConfig
     from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
@@ -602,14 +609,19 @@ def list_recordings(limit, search, sort_by, no_header):
     all_by_date = mgr.list_sessions(limit=None, sort_by="date")
     ref_map = {s.stem: (f"HEAD~{i}" if i else "HEAD") for i, s in enumerate(all_by_date)}
 
-    sessions = mgr.list_sessions(limit=limit, sort_by=sort_by, search=search)
+    sessions = mgr.list_sessions(
+        limit=limit, sort_by=sort_by, search=search,
+        tags=list(filter_tags) or None,
+        exclude_tags=list(exclude_tags) or None,
+        untagged=untagged,
+    )
     if not sessions:
         click.echo("No recordings found.")
         return
 
     if not no_header:
-        click.echo(f"{'REF':<7} {'Date':<22} {'Dur':>8} {'Tx':>2}  {'Source'}")
-        click.echo("-" * 54)
+        click.echo(f"{'REF':<7} {'Date':<22} {'Dur':>8} {'Tx':>2}  {'Source':<12} {'Tags'}")
+        click.echo("-" * 70)
 
     for s in sessions:
         ref = ref_map.get(s.stem, "?")
@@ -630,7 +642,9 @@ def list_recordings(limit, search, sort_by, no_header):
         else:
             source = source_type
         trans_str = "Y" if s.transcribed else "N"
-        click.echo(f"{ref:<7} {date_str:<22} {dur_str:>8} {trans_str:>2}  {source}")
+        session_tags = meta.get("tags") or []
+        tags_str = f"  [{', '.join(session_tags)}]" if session_tags else ""
+        click.echo(f"{ref:<7} {date_str:<22} {dur_str:>8} {trans_str:>2}  {source}{tags_str}")
 
 
 # Alias: tscribe ls → tscribe list
@@ -638,18 +652,27 @@ main.add_command(list_recordings, name="ls")
 
 
 @main.command()
-@click.argument("query")
+@click.argument("query", default="")
 @click.option("--limit", "-n", default=20, help="Max sessions to show.")
 @click.option("--sort", "sort_by", default="date",
               type=click.Choice(["date", "duration", "name"]), help="Sort field.")
-def search(query, limit, sort_by):
+@click.option("--tag", "filter_tags", multiple=True, help="Filter to sessions with this tag (repeatable, AND).")
+@click.option("--no-tag", "exclude_tags", multiple=True, help="Exclude sessions with this tag (repeatable).")
+@click.option("--untagged", is_flag=True, help="Show only sessions with no tags.")
+@click.option("--dump", is_flag=True, help="Dump full transcript text instead of matching lines.")
+def search(query, limit, sort_by, filter_tags, exclude_tags, untagged, dump):
     """Search transcript text for a keyword or phrase.
 
     \b
     Examples:
       tscribe search "action items"
       tscribe search meeting -n 50
+      tscribe search --tag meeting --dump
+      tscribe search --untagged
     """
+    if not query and not filter_tags and not exclude_tags and not untagged:
+        raise click.ClickException("Provide a search query, --tag, --no-tag, or --untagged.")
+
     from tscribe.config import TscribeConfig
     from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
     from tscribe.session import SessionManager
@@ -662,20 +685,122 @@ def search(query, limit, sort_by):
     all_by_date = mgr.list_sessions(limit=None, sort_by="date")
     ref_map = {s.stem: (f"HEAD~{i}" if i else "HEAD") for i, s in enumerate(all_by_date)}
 
-    results = mgr.search_transcripts(query, limit=limit, sort_by=sort_by)
+    results = mgr.search_transcripts(
+        query, limit=limit, sort_by=sort_by,
+        tags=list(filter_tags) or None,
+        exclude_tags=list(exclude_tags) or None,
+        untagged=untagged,
+    )
     if not results:
         click.echo("No matches found.")
         return
 
     for session, lines in results:
         ref = ref_map.get(session.stem, "?")
-        click.echo(f"── {_stem_date_str(session.stem)} ({ref}) ──")
-        for line in lines:
-            click.echo(line)
-        click.echo()
+        meta = session.metadata or {}
+
+        if dump:
+            # Build rich header
+            dur_str = ""
+            if session.duration_seconds is not None:
+                m, sec = divmod(int(session.duration_seconds), 60)
+                h, m = divmod(m, 60)
+                dur_str = f" | {h:02d}:{m:02d}:{sec:02d}"
+            source = meta.get("source_type", "")
+            if source == "url":
+                source = meta.get("source_url", "url")
+            source_str = f" | {source}" if source else ""
+            session_tags = meta.get("tags") or []
+            tags_str = f" | tags: {', '.join(session_tags)}" if session_tags else ""
+            click.echo(f"── {_stem_date_str(session.stem)} ({ref}){dur_str}{source_str}{tags_str} ──")
+
+            # Dump full transcript
+            if session.txt_path and session.txt_path.exists():
+                try:
+                    click.echo(session.txt_path.read_text())
+                except OSError:
+                    click.echo("[could not read transcript]")
+            else:
+                click.echo("[no transcript]")
+            click.echo()
+        else:
+            click.echo(f"── {_stem_date_str(session.stem)} ({ref}) ──")
+            for line in lines:
+                click.echo(line)
+            click.echo()
 
     count = len(results)
     click.echo(f"{count} match{'es' if count != 1 else ''} found.")
+
+
+@main.command()
+@click.argument("ref", default="")
+@click.argument("tags", nargs=-1)
+@click.option("--remove", "-r", is_flag=True, help="Remove tags instead of adding.")
+@click.option("--clear", is_flag=True, help="Remove all tags.")
+@click.option("--all", "show_all", is_flag=True, help="List all tags across all recordings.")
+def tag(ref, tags, remove, clear, show_all):
+    """Manage tags on recordings.
+
+    \b
+    Examples:
+      tscribe tag HEAD meeting client     Add tags
+      tscribe tag HEAD -r meeting         Remove a tag
+      tscribe tag HEAD --clear            Remove all tags
+      tscribe tag HEAD                    Show current tags
+      tscribe tag --all                   List all tags across all recordings
+    """
+    from tscribe.config import TscribeConfig
+    from tscribe.paths import get_config_path, get_data_dir, get_recordings_dir
+    from tscribe.session import SessionManager
+
+    if remove and clear:
+        raise click.ClickException("--remove and --clear are mutually exclusive.")
+
+    cfg = TscribeConfig.load(get_config_path(get_data_dir()))
+    data_dir = get_data_dir(cfg.storage.data_dir)
+    mgr = SessionManager(get_recordings_dir(data_dir))
+
+    if show_all:
+        tag_counts = mgr.all_tags()
+        if not tag_counts:
+            click.echo("No tags found.")
+            return
+        for t, count in tag_counts.items():
+            click.echo(f"{t} ({count})")
+        return
+
+    if not ref:
+        ref = "HEAD"
+
+    session = _resolve_session(ref, mgr)
+
+    if clear:
+        mgr.clear_tags(session.stem)
+        click.echo("Tags cleared.")
+        return
+
+    if remove:
+        if not tags:
+            raise click.ClickException("Specify tags to remove.")
+        updated = mgr.remove_tags(session.stem, list(tags))
+        if updated:
+            click.echo(f"Tags: {', '.join(updated)}")
+        else:
+            click.echo("No tags.")
+        return
+
+    if tags:
+        updated = mgr.add_tags(session.stem, list(tags))
+        click.echo(f"Tags: {', '.join(updated)}")
+        return
+
+    # No tags argument, no flags → show current tags
+    current = mgr.get_tags(session.stem)
+    if current:
+        click.echo(f"Tags: {', '.join(current)}")
+    else:
+        click.echo("No tags.")
 
 
 def _open_file(path) -> None:

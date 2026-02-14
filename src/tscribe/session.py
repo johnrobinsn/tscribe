@@ -69,13 +69,50 @@ class SessionManager:
         meta.update(updates)
         self.write_metadata(stem, meta)
 
+    # ── tag management ──
+
+    def get_tags(self, stem: str) -> list[str]:
+        """Get tags for a session (empty list if none)."""
+        meta = self.read_metadata(stem) or {}
+        return meta.get("tags") or []
+
+    def add_tags(self, stem: str, tags: list[str]) -> list[str]:
+        """Add tags (lowercase, deduped). Returns updated tag list."""
+        current = self.get_tags(stem)
+        merged = list(dict.fromkeys(current + [t.strip().lower() for t in tags]))
+        self.update_metadata(stem, tags=merged)
+        return merged
+
+    def remove_tags(self, stem: str, tags: list[str]) -> list[str]:
+        """Remove specific tags. Returns updated tag list."""
+        to_remove = {t.strip().lower() for t in tags}
+        updated = [t for t in self.get_tags(stem) if t not in to_remove]
+        self.update_metadata(stem, tags=updated)
+        return updated
+
+    def clear_tags(self, stem: str) -> None:
+        """Remove all tags from a session."""
+        self.update_metadata(stem, tags=[])
+
+    def all_tags(self) -> dict[str, int]:
+        """Return ``{tag: count}`` across all recordings, sorted by count desc."""
+        counts: dict[str, int] = {}
+        for wav_path in self.recordings_dir.glob("*.wav"):
+            meta = self.read_metadata(wav_path.stem)
+            for t in (meta.get("tags") or []) if meta else []:
+                counts[t] = counts.get(t, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
     def list_sessions(
         self,
         limit: Optional[int] = 20,
         sort_by: str = "date",
         search: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        exclude_tags: Optional[list[str]] = None,
+        untagged: bool = False,
     ) -> list[SessionInfo]:
-        """List recording sessions, optionally filtered by transcript text search."""
+        """List recording sessions, optionally filtered by transcript text search and tags."""
         sessions = []
 
         for wav_path in self.recordings_dir.glob("*.wav"):
@@ -85,6 +122,9 @@ class SessionManager:
             if search:
                 if not self._matches_search(info, search):
                     continue
+
+            if not self._matches_tag_filter(info, tags, exclude_tags, untagged):
+                continue
 
             sessions.append(info)
 
@@ -148,36 +188,67 @@ class SessionManager:
 
     def search_transcripts(
         self,
-        query: str,
+        query: str = "",
         limit: int = 20,
         sort_by: str = "date",
+        tags: Optional[list[str]] = None,
+        exclude_tags: Optional[list[str]] = None,
+        untagged: bool = False,
     ) -> list[tuple[SessionInfo, list[str]]]:
         """Search transcript text and return matching sessions with context lines."""
-        query_lower = query.lower()
+        query_lower = query.lower() if query else ""
         results = []
 
         for wav_path in self.recordings_dir.glob("*.wav"):
             stem = wav_path.stem
             info = self._build_session_info(stem, wav_path)
-            if not info.txt_path or not info.txt_path.exists():
+
+            if not self._matches_tag_filter(info, tags, exclude_tags, untagged):
                 continue
-            try:
-                text = info.txt_path.read_text()
-            except OSError:
-                continue
-            matching_lines = [
-                line.strip()
-                for line in text.splitlines()
-                if query_lower in line.lower()
-            ]
-            if matching_lines:
-                results.append((info, matching_lines))
+
+            if query_lower:
+                if not info.txt_path or not info.txt_path.exists():
+                    continue
+                try:
+                    text = info.txt_path.read_text()
+                except OSError:
+                    continue
+                matching_lines = [
+                    line.strip()
+                    for line in text.splitlines()
+                    if query_lower in line.lower()
+                ]
+                if matching_lines:
+                    results.append((info, matching_lines))
+            else:
+                # Tag-only filter (no text query) — include all matching sessions
+                results.append((info, []))
 
         results.sort(
             key=lambda r: self._sort_key(r[0], sort_by),
             reverse=(sort_by == "date"),
         )
         return results[:limit]
+
+    def _matches_tag_filter(
+        self,
+        info: SessionInfo,
+        tags: Optional[list[str]],
+        exclude_tags: Optional[list[str]],
+        untagged: bool,
+    ) -> bool:
+        """Check if a session matches the tag filter criteria."""
+        session_tags = set((info.metadata or {}).get("tags") or [])
+        if tags:
+            if not all(t in session_tags for t in tags):
+                return False
+        if exclude_tags:
+            if any(t in session_tags for t in exclude_tags):
+                return False
+        if untagged:
+            if session_tags:
+                return False
+        return True
 
     def _sort_key(self, session: SessionInfo, sort_by: str):
         if sort_by == "date":

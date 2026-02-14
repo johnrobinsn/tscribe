@@ -204,6 +204,132 @@ class TestSearchTranscripts:
             assert any("action items" in l.lower() for l in lines)
 
 
+class TestTags:
+    def test_get_tags_empty(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "s1.wav")
+        session_mgr.write_metadata("s1", {"duration_seconds": 1.0})
+        assert session_mgr.get_tags("s1") == []
+
+    def test_get_tags_no_meta(self, session_mgr):
+        assert session_mgr.get_tags("nonexistent") == []
+
+    def test_add_tags(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "s1.wav")
+        session_mgr.write_metadata("s1", {"duration_seconds": 1.0})
+        result = session_mgr.add_tags("s1", ["Meeting", " Client "])
+        assert result == ["meeting", "client"]
+
+    def test_add_tags_dedupes(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "s1.wav")
+        session_mgr.write_metadata("s1", {"duration_seconds": 1.0})
+        session_mgr.add_tags("s1", ["meeting"])
+        result = session_mgr.add_tags("s1", ["meeting", "new"])
+        assert result == ["meeting", "new"]
+
+    def test_remove_tags(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "s1.wav")
+        session_mgr.write_metadata("s1", {"duration_seconds": 1.0, "tags": ["a", "b", "c"]})
+        result = session_mgr.remove_tags("s1", ["b"])
+        assert result == ["a", "c"]
+
+    def test_remove_nonexistent_tag(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "s1.wav")
+        session_mgr.write_metadata("s1", {"duration_seconds": 1.0, "tags": ["a"]})
+        result = session_mgr.remove_tags("s1", ["z"])
+        assert result == ["a"]
+
+    def test_clear_tags(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "s1.wav")
+        session_mgr.write_metadata("s1", {"duration_seconds": 1.0, "tags": ["a", "b"]})
+        session_mgr.clear_tags("s1")
+        assert session_mgr.get_tags("s1") == []
+
+    def test_all_tags(self, session_mgr):
+        _create_wav(session_mgr.recordings_dir / "s1.wav")
+        session_mgr.write_metadata("s1", {"duration_seconds": 1.0, "tags": ["meeting", "client"]})
+        _create_wav(session_mgr.recordings_dir / "s2.wav")
+        session_mgr.write_metadata("s2", {"duration_seconds": 1.0, "tags": ["meeting"]})
+        _create_wav(session_mgr.recordings_dir / "s3.wav")
+        session_mgr.write_metadata("s3", {"duration_seconds": 1.0})
+
+        counts = session_mgr.all_tags()
+        assert counts == {"meeting": 2, "client": 1}
+
+    def test_all_tags_empty(self, session_mgr):
+        assert session_mgr.all_tags() == {}
+
+
+class TestTagFiltering:
+    def _setup(self, session_mgr):
+        """Create 3 sessions: s1 tagged [meeting, client], s2 tagged [meeting], s3 untagged."""
+        _create_wav(session_mgr.recordings_dir / "2025-01-10-100000.wav")
+        session_mgr.write_metadata("2025-01-10-100000", {
+            "duration_seconds": 1.0, "tags": ["meeting", "client"],
+        })
+        _create_wav(session_mgr.recordings_dir / "2025-01-11-100000.wav")
+        session_mgr.write_metadata("2025-01-11-100000", {
+            "duration_seconds": 2.0, "tags": ["meeting"],
+        })
+        _create_wav(session_mgr.recordings_dir / "2025-01-12-100000.wav")
+        session_mgr.write_metadata("2025-01-12-100000", {"duration_seconds": 3.0})
+
+    def test_filter_by_tag(self, session_mgr):
+        self._setup(session_mgr)
+        sessions = session_mgr.list_sessions(tags=["meeting"])
+        assert len(sessions) == 2
+
+    def test_filter_by_multiple_tags_and(self, session_mgr):
+        self._setup(session_mgr)
+        sessions = session_mgr.list_sessions(tags=["meeting", "client"])
+        assert len(sessions) == 1
+        assert sessions[0].stem == "2025-01-10-100000"
+
+    def test_filter_untagged(self, session_mgr):
+        self._setup(session_mgr)
+        sessions = session_mgr.list_sessions(untagged=True)
+        assert len(sessions) == 1
+        assert sessions[0].stem == "2025-01-12-100000"
+
+    def test_filter_exclude_tags(self, session_mgr):
+        self._setup(session_mgr)
+        sessions = session_mgr.list_sessions(exclude_tags=["client"])
+        assert len(sessions) == 2
+        stems = {s.stem for s in sessions}
+        assert "2025-01-10-100000" not in stems
+
+    def test_filter_combined(self, session_mgr):
+        self._setup(session_mgr)
+        # Has meeting but not client
+        sessions = session_mgr.list_sessions(tags=["meeting"], exclude_tags=["client"])
+        assert len(sessions) == 1
+        assert sessions[0].stem == "2025-01-11-100000"
+
+    def test_search_with_tag_filter(self, session_mgr):
+        self._setup(session_mgr)
+        # Add transcripts
+        (session_mgr.recordings_dir / "2025-01-10-100000.txt").write_text("budget discussion")
+        (session_mgr.recordings_dir / "2025-01-11-100000.txt").write_text("budget review")
+        (session_mgr.recordings_dir / "2025-01-12-100000.txt").write_text("budget untagged")
+
+        results = session_mgr.search_transcripts("budget", tags=["meeting"])
+        assert len(results) == 2
+        stems = {r[0].stem for r in results}
+        assert "2025-01-12-100000" not in stems
+
+    def test_search_tag_only_no_query(self, session_mgr):
+        self._setup(session_mgr)
+        results = session_mgr.search_transcripts("", tags=["client"])
+        assert len(results) == 1
+        assert results[0][0].stem == "2025-01-10-100000"
+        assert results[0][1] == []  # no matching lines when no query
+
+    def test_search_untagged(self, session_mgr):
+        self._setup(session_mgr)
+        results = session_mgr.search_transcripts("", untagged=True)
+        assert len(results) == 1
+        assert results[0][0].stem == "2025-01-12-100000"
+
+
 class TestImportExternal:
     def test_import_copies_file(self, session_mgr, tmp_path):
         source = tmp_path / "external.wav"
