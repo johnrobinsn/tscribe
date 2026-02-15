@@ -95,16 +95,6 @@ class Transcriber:
             os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
             os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
-            # Detect first-time model download and notify the user
-            try:
-                from huggingface_hub import try_to_load_from_cache
-
-                repo = f"Systran/faster-whisper-{self._model_name}"
-                if try_to_load_from_cache(repo, "model.bin") is None:
-                    print(f"Downloading model '{self._model_name}'... (first time only)")
-            except Exception:
-                pass
-
             from faster_whisper import WhisperModel
 
             self._model = WhisperModel(
